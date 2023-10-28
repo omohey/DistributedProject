@@ -1,69 +1,40 @@
-// client.rs
+use std::net::UdpSocket;
+use std::io;
 
-use std::io::{Read, Write};
-use std::net::TcpStream;
-use std::thread;
-use std::time::{Duration, Instant};
-
-fn send_request_to_server(number: i64, operation_flag: u8) -> i64 {
-    match TcpStream::connect("127.0.0.1:8080") {
-        Ok(mut stream) => {
-            // Send the request to the server (operation_flag + number)
-            let mut request = Vec::new();
-            request.push(operation_flag);
-            request.extend_from_slice(&number.to_be_bytes());
-
-            if let Err(e) = stream.write_all(&request) {
-                eprintln!("Failed to write to server: {}", e);
-                return 0;
-            }
-
-            let mut buffer = [0; 8];
-            // Read the result from the server
-            match stream.read_exact(&mut buffer) {
-                Ok(_) => {
-                    let result = i64::from_be_bytes(buffer);
-                    result
-                }
-                Err(e) => {
-                    eprintln!("Failed to read from server: {}", e);
-                    0
-                }
-            }
-        }
-        Err(e) => {
-            eprintln!("Failed to connect to server: {}", e);
-            0
-        }
-    }
+fn send_data(socket: &UdpSocket, address: &str, data: &[u8]) -> io::Result<usize> {
+    socket.send_to(data, address)
 }
 
-fn main() {
-    let number_of_requests = 20;
-    let delay_duration = Duration::from_secs(1);
+fn main() -> io::Result<()> {
+    let socket = UdpSocket::bind("127.0.0.1:0")?; // Binding to 0 allows the OS to choose an available port
 
-    let mut total_duration = Duration::new(0, 0);
+    let server1_address = "127.0.0.1:8080";
+    let server2_address = "127.0.0.1:8081";
 
-    for i in 0..number_of_requests {
-        let iteration_start = Instant::now();
+    let mut increment = 0;
+    loop {
+        let input;
+        increment += 1;
+        input = increment.to_string();
 
-        let number_to_increment = 102;
-        let result_increment = send_request_to_server(number_to_increment, 0); // 0 for increment
-        println!("Server responded with increment: {}", result_increment);
+        send_data(&socket, server1_address, input.as_bytes())?;
+        send_data(&socket, server2_address, input.as_bytes())?;
 
-        let number_to_decrement = 110;
-        let result_decrement = send_request_to_server(number_to_decrement, 1); // 1 for decrement
-        println!("Server responded with decrement: {}", result_decrement);
+        // Receiving from the server1
+        let mut buffer1 = [0; 1024];
+        socket.recv_from(&mut buffer1)?;
 
-        let iteration_time = iteration_start.elapsed();
-        total_duration += iteration_time;
+        // Receiving from the server2
+        let mut buffer2 = [0; 1024];
+        socket.recv_from(&mut buffer2)?;
 
-        println!("Iteration {} took: {:?}", i + 1, iteration_time);
+        let response1 = String::from_utf8_lossy(&buffer1);
+        let response2 = String::from_utf8_lossy(&buffer2);
 
-        // Add a delay between requests for better synchronization
-        thread::sleep(delay_duration);
+        println!("Received response from server 1: {}", response1);
+        println!("Received response from server 2: {}", response2);
+
+        // Making the thread sleep for 1 second
+        std::thread::sleep(std::time::Duration::from_secs(1));
     }
-    // Calculate and print the average duration
-    let average_duration = total_duration / number_of_requests as u32;
-    println!("Average iteration time: {:?}", average_duration);
 }

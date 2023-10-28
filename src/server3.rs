@@ -5,11 +5,11 @@ use std::net::UdpSocket;
 fn main() {
     // There will be 3 servers in total, each listening on a different port. Save the ip and port of each server in a vector
     let servers = vec!["127.0.0.1:8080", "127.0.0.1:8081", "127.0.0.1:8082"];
-    let myip = servers[0];
+    let myip = servers[2];
 
 
-    let socket = UdpSocket::bind("127.0.0.1:8080").expect("Failed to bind to address");
-    println!("Server listening on 127.0.0.1:8080");
+    let socket = UdpSocket::bind("127.0.0.1:8082").expect("Failed to bind to address");
+    println!("Server listening on 127.0.0.1:8082");
 
     let mut buffer = [0; 1024];
     loop {
