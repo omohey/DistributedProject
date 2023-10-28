@@ -12,7 +12,7 @@ async fn read_request(socket: &UdpSocket) -> Result<(SocketAddr, Vec<u8>), Box<d
         .await?;
         // .expect("Failed to receive data from client");
 
-    Ok((sender_address, buffer))
+    Ok((sender_address, buffer[0..length].to_vec()))
 }
 
 async fn send_response(socket: &UdpSocket, dest_addr: &SocketAddr, data: &Vec<u8>) -> Result<(), Box<dyn std::error::Error>>{
@@ -75,6 +75,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         });
     }
+    
+
+    // for _ in 0..num_threads {
+    //     let cloned_socket = Arc::clone(&socket_clone);
+    //     tokio::spawn(handle_client(cloned_socket));
+    // } 
 
     // Block the main thread to keep the program running
     for _ in 0..num_threads {

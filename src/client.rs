@@ -36,7 +36,8 @@ fn send_request_to_server(socket: &UdpSocket, server_addr: &SocketAddr, data: &[
 }
 
 // get responses to the socket
-fn read_response(socket: &UdpSocket) -> ServerReply {
+// fn read_response(socket: &UdpSocket) -> ServerReply {
+fn read_response(socket: &UdpSocket) -> Vec<u8> {
     let mut buffer = vec![0; 1024];
     // Receive the result from the server
     let (length, server_addr) = socket
@@ -44,32 +45,34 @@ fn read_response(socket: &UdpSocket) -> ServerReply {
         .expect("Failed to receive data from server");
     
     // receive a flag to indicate the type of reply, 0 is election result (server address), 1 is the processed request's result
-    let reply_flag = buffer[0];
+    // let reply_flag = buffer[0];
 
-    // returning the appropriate result
-    match reply_flag {
-        0 => return ServerReply::Address(server_addr),
-        1 => {
-            return ServerReply::Data(buffer[1..length].to_vec());
-        },
-        _ => ServerReply::None
-    }
+    // // returning the appropriate result
+    // match reply_flag {
+    //     0 => return ServerReply::Address(server_addr),
+    //     1 => {
+    //         return ServerReply::Data(buffer[1..length].to_vec());
+    //     },
+    //     _ => ServerReply::None
+    // }
+    return buffer[0..length].to_vec();
 }
 
 // handling election result or processed request
-fn handle_response(server_reply: &ServerReply, socket: &UdpSocket, data: &[u8]) {
-    match server_reply {
-        ServerReply::Address(address) => {
-            send_request_to_server(socket, &address, data);
-            let server_reply: ServerReply = read_response(socket);
-            handle_response(&server_reply, socket, data);
-        },
-        ServerReply::Data(reply_data) => {
-            println!("Server replied with {:?}", i64::from_be_bytes(reply_data.as_slice().try_into().unwrap()));
-        },
-        ServerReply::None => {}
-    }
-}
+// fn handle_response(server_reply: &ServerReply, socket: &UdpSocket, data: &[u8]) {
+//     match server_reply {
+//         ServerReply::Address(address) => {
+//             send_request_to_server(socket, &address, data);
+//             let server_reply: ServerReply = read_response(socket);
+//             handle_response(&server_reply, socket, data);
+//         },
+//         ServerReply::Data(reply_data) => {
+//             println!("Server replied with {:?}", i64::from_be_bytes(reply_data.as_slice().try_into().unwrap()));
+//         },
+//         ServerReply::None => {}
+//     }
+// }
+
 
 fn main() {
     let number_of_requests = 5;
@@ -89,14 +92,18 @@ fn main() {
         let number_to_increment:i64 = 102;
         let request = bundle_request(&0, &number_to_increment);
         send_request_to_servers(&client_socket, &server_addresses, &request);
-        let server_reply: ServerReply = read_response(&client_socket);
-        handle_response(&server_reply, &client_socket, &request);
+        let server_reply = read_response(&client_socket);
+        // handle_response(&server_reply, &client_socket, &request);
+        let result = i64::from_be_bytes(server_reply.as_slice().try_into().unwrap());
+        println!("Server replied with {}", result);
 
         let number_to_decrement:i64 = 110;
         let request = bundle_request(&1, &number_to_decrement);
         send_request_to_servers(&client_socket, &server_addresses, &request);
         let server_reply = read_response(&client_socket);
-        handle_response(&server_reply, &client_socket, &request);
+        let result = i64::from_be_bytes(server_reply.as_slice().try_into().unwrap());
+        println!("Server replied with {}", result);
+        // handle_response(&server_reply, &client_socket, &request);
 
         let iteration_time = iteration_start.elapsed();
         total_duration += iteration_time;
