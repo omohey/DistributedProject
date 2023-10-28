@@ -1,6 +1,7 @@
 use std::net::UdpSocket;
 use std::io;
 
+
 fn send_data(socket: &UdpSocket, address: &str, data: &[u8]) -> io::Result<usize> {
     socket.send_to(data, address)
 }
@@ -10,29 +11,26 @@ fn main() -> io::Result<()> {
 
     let server1_address = "127.0.0.1:8080";
     let server2_address = "127.0.0.1:8081";
+    let server3_address = "127.0.0.1:8082";
 
-    let mut increment = 0;
+    let mut increment: i32 = 0;
     loop {
-        let input;
+        let input:i32;
         increment += 1;
-        input = increment.to_string();
+        input = increment;
 
-        send_data(&socket, server1_address, input.as_bytes())?;
-        send_data(&socket, server2_address, input.as_bytes())?;
+        send_data(&socket, server1_address, &input.to_ne_bytes())?;
+        send_data(&socket, server2_address, &input.to_ne_bytes())?;
+        send_data(&socket, server3_address, &input.to_ne_bytes())?;
 
         // Receiving from the server1
         let mut buffer1 = [0; 1024];
-        socket.recv_from(&mut buffer1)?;
-
-        // Receiving from the server2
-        let mut buffer2 = [0; 1024];
-        socket.recv_from(&mut buffer2)?;
+        let (size, source) = socket.recv_from(&mut buffer1)?;
 
         let response1 = String::from_utf8_lossy(&buffer1);
-        let response2 = String::from_utf8_lossy(&buffer2);
 
-        println!("Received response from server 1: {}", response1);
-        println!("Received response from server 2: {}", response2);
+        println!("Received response from server: {}", response1);
+        println!("The server address is: {}", source);
 
         // Making the thread sleep for 1 second
         std::thread::sleep(std::time::Duration::from_secs(1));
