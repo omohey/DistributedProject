@@ -1,5 +1,4 @@
 extern crate lazy_static;
-use std::os::windows::raw::SOCKET;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::collections::HashMap;
