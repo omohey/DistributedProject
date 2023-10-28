@@ -1,5 +1,6 @@
 extern crate lazy_static;
-use std::os::windows::raw::SOCKET;
+// use std::os::windows::raw::SOCKET;
+use libc::c_int;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::collections::HashMap;
@@ -20,19 +21,19 @@ lazy_static! {
     };
     
     static ref SERVER_ADDRESSES: Mutex<Vec<SocketAddr>> = {
-        let vec = Vec::new();
+        let mut vec = Vec::new();
         vec.push("127.0.0.1:8081".to_socket_addrs().unwrap().next().unwrap());
         vec.push("127.0.0.1:8082".to_socket_addrs().unwrap().next().unwrap());
         Mutex::new(vec)
     };
 
-    static ref CUR_SOCKET: Mutex<UdpSocket> = {
-        let socket = match UdpSocket::bind("127.0.0.1:8080").await {
-            Ok(s) => s,
-            Err(e) => panic!("Failed to bind socket {}", e);
-        };
-        Mutex::new(socket);
-    };
+    // static ref CUR_SOCKET: Mutex<UdpSocket> = async {
+    //     let socket = match UdpSocket::bind("127.0.0.1:8080").await {
+    //         Ok(s) => s,
+    //         Err(e) => {panic!("Failed to bind socket {}", e)},
+    //     };
+    //     Mutex::new(socket);
+    // };
 
     static ref LOAD: Mutex<u32> = {
         let load: u32 = 0;
@@ -58,13 +59,15 @@ async fn send_response(socket: &UdpSocket, dest_addr: &SocketAddr, data: &Vec<u8
     Ok(())
 }
 
-fn process_request(socket: &UdpSocket, server_addresses: &Vec<SocketAddr>, req_no: &u32, load: &u32, operation_flag: &u8, number: &i64) -> i64 {
+async fn process_request(socket: &UdpSocket, server_addresses: &Vec<SocketAddr>, req_no: &u32, load: &u32, operation_flag: &u8, number: &i64) -> i64 {
 // fn process_request(operation_flag: &u8, number: &i64) -> i64 {
+    println!("flag is: {}", operation_flag);
     match operation_flag {
         0 => number.checked_add(1).unwrap_or(i64::MAX), // Increment with overflow handling
         1 => number.checked_sub(1).unwrap_or(i64::MIN), // Decrement with overflow handling
         2 => {
-            init_election(socket, server_addresses, load, req_no);
+            println!("Election started");
+            init_election(socket, server_addresses, load, req_no).await.unwrap();
             -1
         },
         _ => {
@@ -75,6 +78,7 @@ fn process_request(socket: &UdpSocket, server_addresses: &Vec<SocketAddr>, req_n
 }
 
 async fn init_election(socket: &UdpSocket, server_addresses: &Vec<SocketAddr>, cur_load: &u32, req_no: &u32) -> Result<(), Box<dyn std::error::Error>>{
+    println!("Election really started");
     let mut election_data_map = REQUEST_DATA_MAP.lock().unwrap();
     let mut election_data = Vec::new();
     let req_no_bytes = req_no.to_be_bytes().to_vec();
@@ -121,17 +125,20 @@ async fn init_election(socket: &UdpSocket, server_addresses: &Vec<SocketAddr>, c
     Ok(())
 }
 
-async fn handle_client(socket: UdpSocket, server_addresses: &Vec<SocketAddr>, ) -> Result<(), Box<dyn std::error::Error>> {
+async fn handle_client(socket: &UdpSocket) -> Result<(), Box<dyn std::error::Error>> {
 // async fn handle_client(socket: &UdpSocket) -> Result<(), Box<dyn std::error::Error>> {
     loop {
         let (client_address, data) = read_request(&socket).await?;
         let operation_flag = data[0];
-        result = process_request(&socket, server_addresses, req_no, load, &operation_flag, number)
+        *LOAD.lock().unwrap() += 1;
+        let load = *LOAD.lock().unwrap();
+        let number = i64::from_be_bytes(data[1..9].try_into().unwrap());
+        let server_addresses = SERVER_ADDRESSES.lock().unwrap().clone();
+        let new_result = process_request(&socket, &server_addresses, &130, &load, &operation_flag, &number).await;
         println!("Result is: {}", new_result);
         send_response(&socket, &client_address, &new_result.to_be_bytes().to_vec()).await?;
     }
 }
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let socket = UdpSocket::bind("127.0.0.1:8080").await?;
@@ -142,14 +149,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     let num_threads = 4; // Number of threads to handle clients
     
-    // for _ in 0..num_threads {
-    //     let socket_clone =Arc::clone(&socket);
-    //     tokio::spawn(async move {
-    //         if let Err(err) = handle_client(&socket_clone).await {
-    //             eprintln!("Error in handle_client: {}", err);
-    //         }
-    //     });
-    // }
+    for _ in 0..num_threads {
+        let socket_clone =Arc::clone(&socket);
+        tokio::spawn(async move {
+            if let Err(err) = handle_client(&socket_clone).await {
+                eprintln!("Error in handle_client: {}", err);
+            }
+        });
+    }
     
 
     // for _ in 0..num_threads {
