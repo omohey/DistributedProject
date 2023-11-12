@@ -75,7 +75,7 @@ fn read_response(socket: &UdpSocket) -> Vec<u8> {
 
 
 fn main() {
-    let number_of_requests = 5;
+    let number_of_requests = 1;
     let delay_duration = Duration::from_secs(1);
     let mut total_duration = Duration::new(0, 0);
 
@@ -96,6 +96,14 @@ fn main() {
         // handle_response(&server_reply, &client_socket, &request);
         let result = i64::from_be_bytes(server_reply.as_slice().try_into().unwrap());
         println!("Server replied with {}", result);
+        let server_reply = read_response(&client_socket);
+        // handle_response(&server_reply, &client_socket, &request);
+        let result = i64::from_be_bytes(server_reply.as_slice().try_into().unwrap());
+        println!("Server replied with {}", result);
+        let server_reply = read_response(&client_socket);
+        // handle_response(&server_reply, &client_socket, &request);
+        let result = i64::from_be_bytes(server_reply.as_slice().try_into().unwrap());
+        println!("Server replied with {}", result);
 
         let number_to_decrement:i64 = 110;
         let request = bundle_request(&1, &number_to_decrement);
@@ -103,7 +111,19 @@ fn main() {
         let server_reply = read_response(&client_socket);
         let result = i64::from_be_bytes(server_reply.as_slice().try_into().unwrap());
         println!("Server replied with {}", result);
+
+        let server_reply = read_response(&client_socket);
+        let result = i64::from_be_bytes(server_reply.as_slice().try_into().unwrap());
+        println!("Server replied with {}", result);
+
+        let server_reply = read_response(&client_socket);
+        let result = i64::from_be_bytes(server_reply.as_slice().try_into().unwrap());
+        println!("Server replied with {}", result);
         // handle_response(&server_reply, &client_socket, &request);
+
+        let request = bundle_request(&2, &number_to_decrement);
+        send_request_to_servers(&client_socket, &server_addresses, &request);
+
 
         let iteration_time = iteration_start.elapsed();
         total_duration += iteration_time;
