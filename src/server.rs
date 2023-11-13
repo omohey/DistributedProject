@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::{thread, vec};
+use std::vec;
 use std::net::{SocketAddr, ToSocketAddrs};
 
 use tokio::sync::Mutex;
@@ -17,8 +17,8 @@ struct ElectionData{
 lazy_static! {
     static ref SERVER_ADDRESSES: Mutex<Vec<SocketAddr>> = {
         let mut vec = Vec::new();
-        vec.push("127.0.0.1:8081".to_socket_addrs().unwrap().next().unwrap());
         vec.push("127.0.0.1:8082".to_socket_addrs().unwrap().next().unwrap());
+        vec.push("127.0.0.1:8084".to_socket_addrs().unwrap().next().unwrap());
         Mutex::new(vec)
     };
 
@@ -50,42 +50,45 @@ async fn send_response(socket: &UdpSocket, dest_addr: &SocketAddr, data: &Vec<u8
     Ok(())
 }
 
-async fn handle_client(socket: &UdpSocket) -> Result<(), Box<dyn std::error::Error>> {
+async fn handle_client(clients_socket: &UdpSocket, servers_socket: &UdpSocket) -> Result<(), Box<dyn std::error::Error>> {
     loop {
-        let (client_address, data) = read_request(&socket).await?;
+        let (client_address, data) = read_request(&clients_socket).await?;
         let operation_flag = data[0];
         let pay_load = data[1..9].to_vec();
-        let new_result: i64 = process_request(&socket, &operation_flag, &pay_load).await?;
-        println!("Result is: {}", new_result);
-        send_response(&socket, &client_address, &new_result.to_ne_bytes().to_vec()).await?;
-    }
-}
-
-async fn process_request(socket: &UdpSocket, operation_flag: &u8, pay_load: &Vec<u8>) -> Result<i64, Box<dyn std::error::Error>> {
-    println!("flag is: {}", operation_flag);
-    match operation_flag {
-        0 => {
-            let number = i64::from_ne_bytes(pay_load.as_slice().try_into().unwrap());
-            Ok(number.checked_add(1).unwrap_or(i64::MAX))
-        }, // Increment with overflow handling
-        1 => {
-            let number = i64::from_ne_bytes(pay_load.as_slice().try_into().unwrap());
-            Ok(number.checked_sub(1).unwrap_or(i64::MIN))
-        }, // Decrement with overflow handling
-        2 => {
-            println!("Election started");
-            let req_no = u32::from_ne_bytes(pay_load.as_slice().try_into().unwrap());
-            init_election(socket, &req_no).await?;
-            Ok(-1)
-        },
-        _ => {
-            eprintln!("Invalid operation flag received from client");
-            Ok(-2)
+        match operation_flag {
+            0 => {
+                println!("Received a request to start an election");
+                let req_no = u32::from_ne_bytes(pay_load.as_slice().try_into().unwrap());
+                init_election(&servers_socket, &client_address, &req_no).await?
+            },
+            _ => {
+                let new_result = process_request(&operation_flag, &pay_load).await?;
+                println!("Result is: {}", new_result);
+                send_response(&clients_socket, &client_address, &new_result.to_ne_bytes().to_vec()).await?;
+            }
         }
     }
 }
 
-async fn init_election(socket: &UdpSocket, req_no: &u32) -> Result<(), Box<dyn std::error::Error>>{
+async fn process_request(operation_flag: &u8, pay_load: &Vec<u8>) -> Result<i64, Box<dyn std::error::Error>> {
+    println!("flag is: {}", operation_flag);
+    match operation_flag {
+        1 => {
+            let number = i64::from_ne_bytes(pay_load.as_slice().try_into().unwrap());
+            Ok(number.checked_add(1).unwrap_or(i64::MAX))
+        }, // Increment with overflow handling
+        2 => {
+            let number = i64::from_ne_bytes(pay_load.as_slice().try_into().unwrap());
+            Ok(number.checked_sub(1).unwrap_or(i64::MIN))
+        }, // Decrement with overflow handling
+        _ => {
+            eprintln!("Invalid operation flag received from client");
+            Ok(-1)
+        }
+    }
+}
+
+async fn init_election(servers_socket: &UdpSocket, client_address: &SocketAddr, req_no: &u32) -> Result<(), Box<dyn std::error::Error>>{
     println!("Election really started");
     let election_data_map = &mut *REQUEST_DATA_MAP.lock().await;
     let servers_addresses = SERVER_ADDRESSES.lock().await.clone();
@@ -98,29 +101,25 @@ async fn init_election(socket: &UdpSocket, req_no: &u32) -> Result<(), Box<dyn s
     election_data.extend(load_bytes);
 
     for server_address in servers_addresses.as_slice() {
-        send_response(socket, server_address, &election_data).await?;   
+        send_response(servers_socket, server_address, &election_data).await?;   
     }
 
-    while received_count != 2 {
-        let (sender_addr, data) = read_request(socket).await?;
-        if servers_addresses.contains(&sender_addr) {
-            let req_no = u32::from_ne_bytes(data[0..4].try_into().unwrap());
-            let load = u32::from_ne_bytes(data[4..8].try_into().unwrap());
-            
-            let entry = election_data_map
-                .entry(req_no)
-                .or_insert(Vec::new());
-            entry.push(ElectionData { load, server_address: sender_addr });
-            
-            received_count += 1;
-            println!("request number: {} load:{} server address: {}", req_no, load, sender_addr);
-        }
-
-        // TODO::handle if you receive from a client instead during an election
+    while received_count < servers_addresses.len() {
+        let (sender_addr, data) = read_request(servers_socket).await?;
+        let req_no = u32::from_ne_bytes(data[0..4].try_into().unwrap());
+        let load = u32::from_ne_bytes(data[4..8].try_into().unwrap());
+        
+        let entry = election_data_map
+            .entry(req_no)
+            .or_insert(Vec::new());
+        entry.push(ElectionData{ load, server_address: sender_addr });
+        
+        received_count += 1;
+        println!("request number: {} load:{} server address: {}", req_no, load, sender_addr);
     }
     
     let mut least_load = *LOAD.lock().await;
-    let mut least_load_addr = socket.local_addr().unwrap();
+    let mut least_load_addr = servers_socket.local_addr().unwrap();
 
     for election_data in election_data_map.get(req_no).unwrap() {
         if election_data.load < least_load {
@@ -135,8 +134,9 @@ async fn init_election(socket: &UdpSocket, req_no: &u32) -> Result<(), Box<dyn s
         }   
     }
 
-    if least_load_addr == socket.local_addr().unwrap() {
-        println!("I am the leader");
+    if least_load_addr == servers_socket.local_addr().unwrap() {
+        let response = "I can take your request".as_bytes().to_vec();
+        send_response(&servers_socket, &client_address, &response).await?;
     }
     else {
         println!("Leader is: {}", least_load_addr);
@@ -147,21 +147,33 @@ async fn init_election(socket: &UdpSocket, req_no: &u32) -> Result<(), Box<dyn s
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let socket = UdpSocket::bind("127.0.0.1:8080").await?;
-    let socket_arc = Arc::new(socket);    
-    println!("Server listening on 127.0.0.1:8080...");
+    let servers_socket = UdpSocket::bind("127.0.0.1:8080").await?;
+    let clients_socket = UdpSocket::bind("127.0.0.1:8081").await?;
     
-    let num_threads = 4; // Number of threads to handle client
+    let servers_socket_arc = Arc::new(servers_socket);    
+    let clients_socket_arc = Arc::new(clients_socket);    
+
+    let num_threads = 4; // Number of threads to handle clients
+    let mut handles = Vec::new();
+
     for _ in 0..num_threads {
-        let socket_clone =Arc::clone(&socket_arc);
-        tokio::spawn(async move {
-            let _ = handle_client(&socket_clone).await;
+        let c_socket_clone = clients_socket_arc.clone();
+        let s_socket_clone = servers_socket_arc.clone();    
+      
+        let handle = tokio::spawn( async move {
+            handle_client(
+                &c_socket_clone,
+                &s_socket_clone
+            ).await.unwrap();
         });
+
+        handles.push(handle);
     }
 
+
     // Block the main thread to keep the program running
-    for _ in 0..num_threads {
-        thread::park();
+    for handle in handles {
+        handle.await?;
     }
 
     Ok(())
