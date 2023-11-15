@@ -144,7 +144,24 @@ async fn init_election(servers_socket: &UdpSocket, client_address: &SocketAddr, 
     Ok(())
 }
 
+async fn handle_server(servers_socket: &UdpSocket) -> Result<(), Box<dyn std::error::Error>> {
+    loop {
+        let mut buffer = vec![0; 1024];
+        let (length, sender_address) = servers_socket
+            .recv_from(&mut buffer)
+            .await?;
 
+        let (sender_addr, data) = read_request(servers_socket).await?;
+        let req_no = u32::from_ne_bytes(data[0..4].try_into().unwrap());
+        let load = u32::from_ne_bytes(data[4..8].try_into().unwrap());
+        let election_data_map = &mut *REQUEST_DATA_MAP.lock().await;
+        let entry = election_data_map
+            .entry(req_no)
+            .or_insert(Vec::new());
+        entry.push(ElectionData{ load, server_address: sender_addr });
+        
+    }
+}
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let servers_socket = UdpSocket::bind("127.0.0.1:8080").await?;
@@ -153,21 +170,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let servers_socket_arc = Arc::new(servers_socket);    
     let clients_socket_arc = Arc::new(clients_socket);    
 
-    let num_threads = 4; // Number of threads to handle clients
+    let num_threads = 3; // Number of threads to handle clients
     let mut handles = Vec::new();
 
-    for _ in 0..num_threads {
-        let c_socket_clone = clients_socket_arc.clone();
-        let s_socket_clone = servers_socket_arc.clone();    
-      
-        let handle = tokio::spawn( async move {
-            handle_client(
-                &c_socket_clone,
-                &s_socket_clone
-            ).await.unwrap();
-        });
+    for i in 0..num_threads {
+        if i == 0
+        {
+            let s_socket_clone = servers_socket_arc.clone();
+            let handle = tokio::spawn( async move {
+                handle_server(
+                    &s_socket_clone
+                ).await.unwrap();
+            });
+    
+            handles.push(handle);
 
-        handles.push(handle);
+        }
+        let c_socket_clone = clients_socket_arc.clone();
+      
+        
     }
 
 

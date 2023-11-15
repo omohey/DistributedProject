@@ -32,3 +32,7 @@ path = "src/client2.rs"
 [[bin]]
 name = "client3"
 path = "src/client3.rs"
+
+[[bin]]
+name = "sten"
+path = "src/stenography.rs"
