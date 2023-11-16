@@ -2,7 +2,10 @@ use std::net::{UdpSocket, SocketAddr, ToSocketAddrs};
 use std::convert::TryInto;
 use std::thread;
 use std::time::{Duration, Instant};
+use std::fs::File;
+use std::io::{Read, Write};
 use std::io;
+
 
 
 // To check if the response is election result or processed request
@@ -79,8 +82,13 @@ fn send_data(socket: &UdpSocket, address: &str, data: &[u8]) -> io::Result<usize
     socket.send_to(data, address)
 }
 fn main() -> io::Result<()> {
+
+
     let socket = UdpSocket::bind("127.0.0.1:0")?; // Binding to 0 allows the OS to choose an available port
     println!("Client started on port {}", socket.local_addr()?);
+
+    // Get the maximum UDP payload size allowed by the OS
+    
 
     let server1_address = "127.0.0.1:8081";
     let server2_address = "127.0.0.1:8083";
@@ -105,8 +113,34 @@ fn main() -> io::Result<()> {
         println!("Received response from server: {}", response1);
         println!("The server address is: {}", source);
 
+        let flag:u8 = 1;
+        let mut buffer = Vec::new();
+        buffer.push(flag);
+        let mut image_bytes = Vec::new();
+        let mut f = File::open("./src/send.jpg")?;
+        f.read_to_end(&mut image_bytes)?;
+        buffer.extend_from_slice(&image_bytes);
+
+        // send the image to the server
+        send_data(&socket, source.to_string().as_str(), &buffer)?;
+
+        // receive the encrypted image from the server
+        const INITIAL_BUFFER_SIZE: usize = 65000; // Initial buffer size, change as needed
+
+        let mut buffer2 = vec![0u8; INITIAL_BUFFER_SIZE]; // Create a buffer with an initial size
+        let (size, source) = socket.recv_from(&mut buffer2)?;
+
+        buffer2.resize(size, 0); // Resize the buffer to fit the received data        
+
+        // write the image to a file
+        let mut f = File::create("./src/encrypted.jpg")?;
+        f.write_all(&buffer2)?;
+        
+
+
+
         // Making the thread sleep for 1 second
-        std::thread::sleep(std::time::Duration::from_secs(100));
+        std::thread::sleep(std::time::Duration::from_secs(2));
     }
 
 

@@ -4,6 +4,8 @@ use std::vec;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::net::Ipv4Addr;
 use std::net::IpAddr;
+use std::fs::File;
+use std::io::{Read, Write};
 
 
 use tokio::sync::Mutex;
@@ -37,12 +39,16 @@ lazy_static! {
 }
 
 async fn read_request(socket: &UdpSocket) -> Result<(SocketAddr, Vec<u8>), Box<dyn std::error::Error>> {
-    let mut buffer = vec![0; 1024];
-    let (length, sender_address) = socket
-        .recv_from(&mut buffer)
-        .await?;
+    const INITIAL_BUFFER_SIZE: usize = 65000; // Initial buffer size, change as needed
 
-    Ok((sender_address, buffer[0..length].to_vec()))
+    let mut buffer = vec![0u8; INITIAL_BUFFER_SIZE]; // Create a buffer with an initial size
+
+    let (length, sender_address) = socket.recv_from(&mut buffer).await?;
+
+    buffer.resize(length, 0); // Resize the buffer to fit the received data
+
+    Ok((sender_address, buffer))
+    // Ok((sender_address, buffer[0..length].to_vec()))
 }
 
 async fn send_response(socket: &UdpSocket, dest_addr: &SocketAddr, data: &Vec<u8>) -> Result<(), Box<dyn std::error::Error>>{
@@ -66,6 +72,10 @@ async fn handle_client(clients_socket: &UdpSocket, servers_socket: &UdpSocket) -
                 println!("Received a request to start an election");
                 let servers_addresses = SERVER_ADDRESSES.lock().await.clone();
                 let myload : u32= *LOAD.lock().await;
+                // need to delete data for key with client address from REQUEST_DATA_MAP
+                let election_data_map = &mut *REQUEST_DATA_MAP.lock().await;
+                election_data_map.remove(&client_address);
+                
                 let mut buffer = myload.to_be_bytes().to_vec();
                 // add client address with port number to buffer in 6 bytes
                 let client_address_bytes: [u8; 4];
@@ -85,6 +95,25 @@ async fn handle_client(clients_socket: &UdpSocket, servers_socket: &UdpSocket) -
                     send_response(servers_socket, server_address, &buffer).await?;   
                 }   
                 println!("HERE4");    
+            },
+            1 => {
+                // remove data[0] and save the rest as an image
+                let mut buffer = data[1..].to_vec();
+
+                println!("Received an image from client");
+                let mut image_bytes = Vec::new();
+                let mut f = File::open("./src/default.jpeg")?;
+                f.read_to_end(&mut image_bytes)?;
+
+                // append to default the image received from client
+                image_bytes.append(&mut buffer);
+                
+
+                // send the image to the client
+                send_response(&clients_socket, &client_address, &image_bytes).await?;
+
+
+
             },
             _ => {
                 // let new_result = process_request(&operation_flag, &pay_load).await?;
@@ -176,7 +205,7 @@ async fn handle_server(servers_socket: &UdpSocket, client_socket: &UdpSocket) ->
             .recv_from(&mut buffer)
             .await?;
 
-        let load_no = u32::from_ne_bytes([buffer[0], buffer[1], buffer[2], buffer[3]]);
+        let load_no = u32::from_ne_bytes([buffer[3], buffer[2], buffer[1], buffer[0]]);
         // extract client address from buffer
         let client_addr = SocketAddr::new(Ipv4Addr::new(buffer[4], buffer[5], buffer[6], buffer[7]).into(), u16::from_ne_bytes([buffer[9], buffer[8]]));
         println!("Load of sender {} is {} for client {}", sender_address, load_no, client_addr);
@@ -265,7 +294,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             handles.push(handle);
         }
         else{
-
         }
             
     }
