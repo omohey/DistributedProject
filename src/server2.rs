@@ -55,15 +55,17 @@ async fn send_response(socket: &UdpSocket, dest_addr: &SocketAddr, data: &Vec<u8
 
 async fn handle_client(clients_socket: &UdpSocket, servers_socket: &UdpSocket) -> Result<(), Box<dyn std::error::Error>> {
     loop {
+        println!("HERE1");
         let (client_address, data) = read_request(&clients_socket).await?;
-        let operation_flag = data[0];
+        println!("HERE2");
+        let operation_flag :u8 = data[0];
         println!("flag is: {}", operation_flag);
         // let pay_load = data[1..5].to_vec();
         match operation_flag {
             0 => {
                 println!("Received a request to start an election");
                 let servers_addresses = SERVER_ADDRESSES.lock().await.clone();
-                let myload = *LOAD.lock().await;
+                let myload : u32= *LOAD.lock().await;
                 let mut buffer = myload.to_be_bytes().to_vec();
                 // add client address with port number to buffer in 6 bytes
                 let client_address_bytes: [u8; 4];
@@ -78,9 +80,11 @@ async fn handle_client(clients_socket: &UdpSocket, servers_socket: &UdpSocket) -
                 }
                 buffer.extend(client_address_bytes.iter());
                 buffer.extend(port_bytes.iter());
+                println!("HERE3");
                 for server_address in servers_addresses.as_slice() {
                     send_response(servers_socket, server_address, &buffer).await?;   
-                }       
+                }   
+                println!("HERE4");    
             },
             _ => {
                 // let new_result = process_request(&operation_flag, &pay_load).await?;
@@ -174,7 +178,7 @@ async fn handle_server(servers_socket: &UdpSocket, client_socket: &UdpSocket) ->
 
         let load_no = u32::from_ne_bytes([buffer[0], buffer[1], buffer[2], buffer[3]]);
         // extract client address from buffer
-        let client_addr = SocketAddr::new(Ipv4Addr::new(buffer[4], buffer[5], buffer[6], buffer[7]).into(), u16::from_ne_bytes([buffer[8], buffer[9]]));
+        let client_addr = SocketAddr::new(Ipv4Addr::new(buffer[4], buffer[5], buffer[6], buffer[7]).into(), u16::from_ne_bytes([buffer[9], buffer[8]]));
         println!("Load of sender {} is {} for client {}", sender_address, load_no, client_addr);
         let election_data_map = &mut *REQUEST_DATA_MAP.lock().await;
         let entry = election_data_map
@@ -206,7 +210,7 @@ async fn handle_server(servers_socket: &UdpSocket, client_socket: &UdpSocket) ->
                 
             }
             if least_load_addr == client_socket.local_addr().unwrap() {
-                println!("I am the leader");
+                println!("I am the leader sending to client with address: {}", client_addr);
                 let response = "Hello, client! I am the leader please send your request to me";
                 *my_load += 1;
                 client_socket.send_to(response.as_bytes(), client_addr).await?;

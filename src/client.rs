@@ -80,6 +80,7 @@ fn send_data(socket: &UdpSocket, address: &str, data: &[u8]) -> io::Result<usize
 }
 fn main() -> io::Result<()> {
     let socket = UdpSocket::bind("127.0.0.1:0")?; // Binding to 0 allows the OS to choose an available port
+    println!("Client started on port {}", socket.local_addr()?);
 
     let server1_address = "127.0.0.1:8081";
     let server2_address = "127.0.0.1:8083";
