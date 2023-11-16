@@ -5,6 +5,12 @@ use std::time::{Duration, Instant};
 use std::fs::File;
 use std::io::{Read, Write};
 use std::io;
+use std::num;
+use std::collections::HashMap;
+
+// use std::f64;
+
+
 
 
 
@@ -94,6 +100,8 @@ fn main() -> io::Result<()> {
     let server2_address = "127.0.0.1:8083";
     let server3_address = "127.0.0.1:8085";
 
+    let mut iteration = 0;
+
     loop {
         let input:u8 = 0;
         let mut buffer = Vec::new();
@@ -113,34 +121,86 @@ fn main() -> io::Result<()> {
         println!("Received response from server: {}", response1);
         println!("The server address is: {}", source);
 
-        let flag:u8 = 1;
-        let mut buffer = Vec::new();
-        buffer.push(flag);
+
         let mut image_bytes = Vec::new();
-        let mut f = File::open("./src/send.jpg")?;
+        let mut f = File::open("./src/image2.jpg")?;
         f.read_to_end(&mut image_bytes)?;
-        buffer.extend_from_slice(&image_bytes);
 
-        // send the image to the server
-        send_data(&socket, source.to_string().as_str(), &buffer)?;
+        let image_size = image_bytes.len();
+        println!("Image size: {}", image_size);
 
-        // receive the encrypted image from the server
+        let flag:u8 = 1;
+        let mut no_frags = (image_size / 65000) as u8;
+        if image_size % 65000 != 0 {
+            no_frags += 1;
+        }
+
+        for i in 0..no_frags {
+            let mut buffer = Vec::new();
+            buffer.push(flag);
+            let frag_no = i as u8;
+            buffer.push(frag_no);
+            buffer.push(no_frags);
+            let start : usize = i as usize * 65000 as usize ;
+            let mut end : usize= (i + 1) as usize * 65000 as usize;
+            if end > image_size {
+                end = image_size;
+            }
+            buffer.extend_from_slice(&image_bytes[start..end]);
+            send_data(&socket, source.to_string().as_str(), &buffer)?;
+        }
+
+
+
+        // buffer.extend_from_slice(&image_bytes);
+
+        // // send the image to the server
+        // send_data(&socket, source.to_string().as_str(), &buffer)?;
+
+        // // receive the encrypted image from the server
         const INITIAL_BUFFER_SIZE: usize = 65000; // Initial buffer size, change as needed
 
         let mut buffer2 = vec![0u8; INITIAL_BUFFER_SIZE]; // Create a buffer with an initial size
         let (size, source) = socket.recv_from(&mut buffer2)?;
 
-        buffer2.resize(size, 0); // Resize the buffer to fit the received data        
+        buffer2.resize(size, 0); // Resize the buffer to fit the received data 
+
+        // read data in the from buffer in the order of frag_no, no_frags, image
+        let frag_no :u8 = buffer2[0];
+        let no_frags :u8 = buffer2[1];
+        let mut image = HashMap::new();
+        image.insert(frag_no, buffer2[2..].to_vec());
+        while image.len() < no_frags as usize {
+            let (size, source) = socket.recv_from(&mut buffer2)?;
+            buffer2.resize(size, 0);
+            let frag_no :u8 = buffer2[0];
+            image.insert(frag_no, buffer2[2..].to_vec());
+        }
+        let mut image_bytes = Vec::new();
+        for i in 0..no_frags {
+            image_bytes.extend_from_slice(&image.get(&i).unwrap());
+        }
 
         // write the image to a file
-        let mut f = File::create("./src/encrypted.jpg")?;
-        f.write_all(&buffer2)?;
+        if iteration == 0 {
+            let mut f = File::create("./src/encrypted.jpg")?;
+            f.write_all(&image_bytes)?;
+        }
+        else {
+            let mut f = File::create("./src/encrypted2.jpg")?;
+            f.write_all(&image_bytes)?;
+        }
+
+        // // write the image to a file
+        // let mut f = File::create("./src/encrypted.jpg")?;
+        // f.write_all(&buffer2)?;
         
+        iteration += 1;
 
 
 
         // Making the thread sleep for 1 second
-        std::thread::sleep(std::time::Duration::from_secs(2));
+        std::thread::sleep(std::time::Duration::from_secs(5));
     }
 
 

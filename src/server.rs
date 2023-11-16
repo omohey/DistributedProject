@@ -36,6 +36,11 @@ lazy_static! {
         let map = HashMap::new();
         Mutex::new(map)
     };
+
+    static ref IMAGES: Mutex<HashMap<SocketAddr, HashMap<u8, Vec<u8>> > > = {
+        let map = HashMap::new();
+        Mutex::new(map)
+    };
 }
 
 async fn read_request(socket: &UdpSocket) -> Result<(SocketAddr, Vec<u8>), Box<dyn std::error::Error>> {
@@ -97,23 +102,60 @@ async fn handle_client(clients_socket: &UdpSocket, servers_socket: &UdpSocket) -
                 println!("HERE4");    
             },
             1 => {
+                const INITIAL_BUFFER_SIZE: usize = 65000; // Initial buffer size, change as needed
+
                 // remove data[0] and save the rest as an image
                 let mut buffer = data[1..].to_vec();
 
-                println!("Received an image from client");
+                let frag_no :u8 = buffer[0];
+                let no_frags :u8 = buffer[1];
+
+                let images = &mut *IMAGES.lock().await;
+                let image = images
+                    .entry(client_address)
+                    .or_insert(HashMap::new());
+                image.insert(frag_no, buffer[2..].to_vec());
+
+                if image.len() < no_frags as usize {
+                    continue;
+                }
                 let mut image_bytes = Vec::new();
+                for i in 0..no_frags {
+                    image_bytes.extend_from_slice(&image.get(&i).unwrap());
+                }
+
+
+                println!("Received an image from client");
+                let mut defualt = Vec::new();
                 let mut f = File::open("./src/default.jpeg")?;
-                f.read_to_end(&mut image_bytes)?;
+                f.read_to_end(&mut defualt)?;
 
                 // append to default the image received from client
-                image_bytes.append(&mut buffer);
-                
+                defualt.extend_from_slice(&image_bytes); // kanet .append                
 
+                let image_size = defualt.len();
+                println!("Image size: {}", image_size);
+
+                let mut no_frags = (image_size / 65000) as u8;
+                if image_size % 65000 != 0 {
+                    no_frags += 1;
+                }
+
+                for i in 0..no_frags {
+                    let mut buffer = Vec::new();
+                    let frag_no = i as u8;
+                    buffer.push(frag_no);
+                    buffer.push(no_frags);
+                    let start : usize = i as usize * 65000 as usize ;
+                    let mut end : usize= (i + 1) as usize * 65000 as usize;
+                    if end > image_size {
+                        end = image_size;
+                    }
+                    buffer.extend_from_slice(&defualt[start..end]);
+                    send_response(&clients_socket, &client_address , &buffer).await?;
+                }
                 // send the image to the client
-                send_response(&clients_socket, &client_address, &image_bytes).await?;
-
-
-
+                // send_response(&clients_socket, &client_address, &defualt).await?;
             },
             _ => {
                 // let new_result = process_request(&operation_flag, &pay_load).await?;

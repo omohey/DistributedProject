@@ -14,7 +14,7 @@ fn main() -> std::io::Result<()> {
     // f.write_all(&image_bytes)?;
     // f.write_all(&image_bytes2)?;
 
-    let mut f = File::open("./src/encoded.jpg")?;
+    let mut f = File::open("./src/encrypted.jpg")?;
     let mut image_bytes = Vec::new();
     f.read_to_end(&mut image_bytes)?;
 
