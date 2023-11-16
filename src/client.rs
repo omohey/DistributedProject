@@ -2,6 +2,8 @@ use std::net::{UdpSocket, SocketAddr, ToSocketAddrs};
 use std::convert::TryInto;
 use std::thread;
 use std::time::{Duration, Instant};
+use std::io;
+
 
 // To check if the response is election result or processed request
 enum ServerReply {
@@ -73,8 +75,47 @@ fn read_response(socket: &UdpSocket) -> Vec<u8> {
 //     }
 // }
 
+fn send_data(socket: &UdpSocket, address: &str, data: &[u8]) -> io::Result<usize> {
+    socket.send_to(data, address)
+}
+fn main() -> io::Result<()> {
+    let socket = UdpSocket::bind("127.0.0.1:0")?; // Binding to 0 allows the OS to choose an available port
 
-fn main() {
+    let server1_address = "127.0.0.1:8081";
+    let server2_address = "127.0.0.1:8083";
+    let server3_address = "127.0.0.1:8085";
+
+    loop {
+        let input:u8 = 0;
+        let mut buffer = Vec::new();
+        buffer.push(input);
+
+        println!("Sending request to server {}: {}", server1_address, input);
+
+        send_data(&socket, server1_address, &input.to_ne_bytes())?;
+        send_data(&socket, server2_address, &input.to_ne_bytes())?;
+        send_data(&socket, server3_address, &input.to_ne_bytes())?;
+
+        let mut buffer1 = [0; 1024];
+        let (size, source) = socket.recv_from(&mut buffer1)?;
+
+        let response1 = String::from_utf8_lossy(&buffer1);
+
+        println!("Received response from server: {}", response1);
+        println!("The server address is: {}", source);
+
+        // Making the thread sleep for 1 second
+        std::thread::sleep(std::time::Duration::from_secs(100));
+    }
+
+
+
+
+
+
+
+
+
     let number_of_requests = 1;
     let delay_duration = Duration::from_secs(1);
     let mut total_duration = Duration::new(0, 0);
