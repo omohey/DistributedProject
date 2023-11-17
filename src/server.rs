@@ -157,6 +157,8 @@ async fn handle_client(clients_socket: &UdpSocket, servers_socket: &UdpSocket) -
                     send_response(&clients_socket, &client_address , &buffer).await?;
                     std::thread::sleep(std::time::Duration::from_millis(1));
                 }
+                let my_load = &mut *LOAD.lock().await;
+                *my_load -= 1;
                 // send the image to the client
                 // send_response(&clients_socket, &client_address, &defualt).await?;
             },
@@ -168,80 +170,6 @@ async fn handle_client(clients_socket: &UdpSocket, servers_socket: &UdpSocket) -
         }
     }
 }
-
-async fn process_request(operation_flag: &u8, pay_load: &Vec<u8>) -> Result<i64, Box<dyn std::error::Error>> {
-    println!("flag is: {}", operation_flag);
-    match operation_flag {
-        1 => {
-            let number = i64::from_ne_bytes(pay_load.as_slice().try_into().unwrap());
-            Ok(number.checked_add(1).unwrap_or(i64::MAX))
-        }, // Increment with overflow handling
-        2 => {
-            let number = i64::from_ne_bytes(pay_load.as_slice().try_into().unwrap());
-            Ok(number.checked_sub(1).unwrap_or(i64::MIN))
-        }, // Decrement with overflow handling
-        _ => {
-            eprintln!("Invalid operation flag received from client");
-            Ok(-1)
-        }
-    }
-}
-
-// async fn init_election(servers_socket: &UdpSocket, client_address: &SocketAddr, req_no: &u32) -> Result<(), Box<dyn std::error::Error>>{
-//     println!("Election really started");
-//     let election_data_map = &mut *REQUEST_DATA_MAP.lock().await;
-//     let servers_addresses = SERVER_ADDRESSES.lock().await.clone();
-//     let mut received_count = 0;
-    
-//     let req_no_bytes = req_no.to_be_bytes().to_vec();
-//     let load_bytes = LOAD.lock().await.to_be_bytes().to_vec();
-//     let mut election_data = Vec::new();
-//     election_data.extend(req_no_bytes);
-//     election_data.extend(load_bytes);
-
-//     for server_address in servers_addresses.as_slice() {
-//         send_response(servers_socket, server_address, &election_data).await?;   
-//     }
-
-//     while received_count < servers_addresses.len() {
-//         let (sender_addr, data) = read_request(servers_socket).await?;
-//         let req_no = u32::from_ne_bytes(data[0..4].try_into().unwrap());
-//         let load = u32::from_ne_bytes(data[4..8].try_into().unwrap());
-        
-//         let entry = election_data_map
-//             .entry(req_no)
-//             .or_insert(Vec::new());
-//         entry.push(ElectionData{ load, server_address: sender_addr });
-        
-//         received_count += 1;
-//         println!("request number: {} load:{} server address: {}", req_no, load, sender_addr);
-//     }
-    
-//     let mut least_load = *LOAD.lock().await;
-//     let mut least_load_addr = servers_socket.local_addr().unwrap();
-
-//     for election_data in election_data_map.get(req_no).unwrap() {
-//         if election_data.load < least_load {
-//             least_load = election_data.load;
-//             least_load_addr = election_data.server_address;
-//         } 
-//         else if election_data.load == least_load {
-//             if election_data.server_address < least_load_addr {
-//                 least_load = election_data.load;
-//                 least_load_addr = election_data.server_address;
-//             }
-//         }   
-//     }
-
-//     if least_load_addr == servers_socket.local_addr().unwrap() {
-//         let response = "I can take your request".as_bytes().to_vec();
-//         send_response(&servers_socket, &client_address, &response).await?;
-//     }
-//     else {
-//         println!("Leader is: {}", least_load_addr);
-//     }
-//     Ok(())
-// }
 
 async fn handle_server(servers_socket: &UdpSocket, client_socket: &UdpSocket) -> Result<(), Box<dyn std::error::Error>> {
     loop {

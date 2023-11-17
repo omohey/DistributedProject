@@ -122,16 +122,9 @@ fn main() -> io::Result<()> {
         println!("The server address is: {}", source);
 
 
-        for i in 0..2 {
             let mut image_bytes = Vec::new();
             let mut f;
-            if i == 0{
-                f = File::open("./src/image3.jpg")?;
-            }
-            else {
-                f = File::open("./src/image.jpg")?;
-            }
-
+            f = File::open("./src/image2.jpg")?;
             f.read_to_end(&mut image_bytes)?;
 
             let image_size = image_bytes.len();
@@ -158,7 +151,8 @@ fn main() -> io::Result<()> {
                 buffer.extend_from_slice(&image_bytes[start..end]);
                 send_data(&socket, source.to_string().as_str(), &buffer)?;
                 // sleep for 10ms
-                std::thread::sleep(std::time::Duration::from_millis(1));
+                std::thread::sleep(std::time::Duration::from_secs(5));
+                // std::thread::sleep(std::time::Duration::from_millis(1));
             }
 
             // // receive the encrypted image from the server
@@ -186,24 +180,11 @@ fn main() -> io::Result<()> {
             }
 
             // write the image to a file
-            if i == 0 {
-                let mut f = File::create("./src/encrypted.jpg")?;
-                f.write_all(&image_bytes)?;
-            }
-            else {
-                let mut f = File::create("./src/encrypted2.jpg")?;
-                f.write_all(&image_bytes)?;
-            }
-            std::thread::sleep(std::time::Duration::from_secs(5));
-
-        }
-
-        
-
-
+            let mut f = File::create("./src/encrypted.jpg")?;
+            f.write_all(&image_bytes)?;
 
         // Making the thread sleep for 1 second
-        std::thread::sleep(std::time::Duration::from_secs(5));
+        std::thread::sleep(std::time::Duration::from_secs(10));
     }
 
 
