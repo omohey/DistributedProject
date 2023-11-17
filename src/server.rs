@@ -44,7 +44,7 @@ lazy_static! {
 }
 
 async fn read_request(socket: &UdpSocket) -> Result<(SocketAddr, Vec<u8>), Box<dyn std::error::Error>> {
-    const INITIAL_BUFFER_SIZE: usize = 65000; // Initial buffer size, change as needed
+    const INITIAL_BUFFER_SIZE: usize = 65300; // Initial buffer size, change as needed
 
     let mut buffer = vec![0u8; INITIAL_BUFFER_SIZE]; // Create a buffer with an initial size
 
@@ -102,8 +102,6 @@ async fn handle_client(clients_socket: &UdpSocket, servers_socket: &UdpSocket) -
                 println!("HERE4");    
             },
             1 => {
-                const INITIAL_BUFFER_SIZE: usize = 65000; // Initial buffer size, change as needed
-
                 // remove data[0] and save the rest as an image
                 let mut buffer = data[1..].to_vec();
 
@@ -116,6 +114,7 @@ async fn handle_client(clients_socket: &UdpSocket, servers_socket: &UdpSocket) -
                     .or_insert(HashMap::new());
                 image.insert(frag_no, buffer[2..].to_vec());
 
+
                 if image.len() < no_frags as usize {
                     continue;
                 }
@@ -123,6 +122,9 @@ async fn handle_client(clients_socket: &UdpSocket, servers_socket: &UdpSocket) -
                 for i in 0..no_frags {
                     image_bytes.extend_from_slice(&image.get(&i).unwrap());
                 }
+
+
+                images.remove(&client_address);
 
 
                 println!("Received an image from client");
@@ -153,6 +155,7 @@ async fn handle_client(clients_socket: &UdpSocket, servers_socket: &UdpSocket) -
                     }
                     buffer.extend_from_slice(&defualt[start..end]);
                     send_response(&clients_socket, &client_address , &buffer).await?;
+                    std::thread::sleep(std::time::Duration::from_millis(1));
                 }
                 // send the image to the client
                 // send_response(&clients_socket, &client_address, &defualt).await?;
