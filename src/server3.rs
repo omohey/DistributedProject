@@ -41,6 +41,11 @@ lazy_static! {
         let map = HashMap::new();
         Mutex::new(map)
     };
+
+    static ref DOWN: Mutex<bool> = {
+        let down = false;
+        Mutex::new(down)
+    };
 }
 
 async fn read_request(socket: &UdpSocket) -> Result<(SocketAddr, Vec<u8>), Box<dyn std::error::Error>> {
@@ -68,18 +73,32 @@ async fn handle_client(clients_socket: &UdpSocket, servers_socket: &UdpSocket) -
     loop {
         println!("HERE1");
         let (client_address, data) = read_request(&clients_socket).await?;
+        let down = &*DOWN.lock().await;
+        let load = &mut *LOAD.lock().await;
         println!("HERE2");
         let operation_flag :u8 = data[0];
         println!("flag is: {}", operation_flag);
+        if (*down) && (*load == 0) {
+            println!("I am down");
+            continue;
+        }
+        if (*down) && (operation_flag == 0){
+            println!("I am down no election");
+            continue;
+        }
+        
         // let pay_load = data[1..5].to_vec();
         match operation_flag {
             0 => {
                 println!("Received a request to start an election");
                 let servers_addresses = SERVER_ADDRESSES.lock().await.clone();
-                let myload : u32= *LOAD.lock().await;
+                println!("HERE7");
+                let myload : u32= load.clone();
+                println!("HERE6");
                 // need to delete data for key with client address from REQUEST_DATA_MAP
                 let election_data_map = &mut *REQUEST_DATA_MAP.lock().await;
                 election_data_map.remove(&client_address);
+                println!("HERE5");
                 
                 let mut buffer = myload.to_be_bytes().to_vec();
                 // add client address with port number to buffer in 6 bytes
@@ -157,8 +176,8 @@ async fn handle_client(clients_socket: &UdpSocket, servers_socket: &UdpSocket) -
                     send_response(&clients_socket, &client_address , &buffer).await?;
                     std::thread::sleep(std::time::Duration::from_millis(1));
                 }
-                let my_load = &mut *LOAD.lock().await;
-                *my_load -= 1;
+                
+                *load -= 1;
                 // send the image to the client
                 // send_response(&clients_socket, &client_address, &defualt).await?;
             },
@@ -171,12 +190,89 @@ async fn handle_client(clients_socket: &UdpSocket, servers_socket: &UdpSocket) -
     }
 }
 
+async fn fault_tolerance(servers_socket: &UdpSocket) -> Result<(), Box<dyn std::error::Error>> {
+    loop {
+        // read from terminal
+        let mut input = String::new();
+        std::io::stdin().read_line(&mut input)?;
+        let input = input.trim();
+        // If character is 'd' then make the server down and if it is 'u' then make the server up
+        if input == "d" {
+            let down = &mut *DOWN.lock().await;
+            *down = true;
+            println!("I am now down");
+            // send to all servers that i am down
+            let servers_addresses = SERVER_ADDRESSES.lock().await.clone();
+
+            let mut buffer = Vec::new();
+            let x = "I am down".as_bytes();
+            buffer.extend_from_slice(x);
+            for server_address in servers_addresses.as_slice() {
+                send_response(&servers_socket, server_address, &buffer).await?;   
+            }
+
+        }
+        else if input == "u" {
+            let down = &mut *DOWN.lock().await;
+            if (*down){
+                *down = false;
+                println!("I am now up");
+
+                let servers_addresses = SERVER_ADDRESSES.lock().await.clone();
+
+                let mut buffer = Vec::new();
+                let x = "I am up".as_bytes();
+                buffer.extend_from_slice(x);
+                for server_address in servers_addresses.as_slice() {
+                    send_response(&servers_socket, server_address, &buffer).await?;   
+                }
+            }
+            
+        }
+        else {
+            println!("Invalid input");
+        }
+    }    
+}
+
+
 async fn handle_server(servers_socket: &UdpSocket, client_socket: &UdpSocket) -> Result<(), Box<dyn std::error::Error>> {
     loop {
         let mut buffer = vec![0; 1024];
         let (length, sender_address) = servers_socket
             .recv_from(&mut buffer)
             .await?;
+
+        // if i am down do not respond
+        let down = &*DOWN.lock().await;
+        if *down {
+            println!("I am downS");
+            continue;
+        }
+
+        // if received "I am down" from another server remove them from SERVER_ADDRESSES
+        let x = "I am down".as_bytes();
+        if buffer[0..x.len()] == x[..] {
+            let mut servers_addresses = SERVER_ADDRESSES.lock().await;
+            let mut index = 0;
+            for i in 0..servers_addresses.len() {
+                if servers_addresses[i] == sender_address {
+                    index = i;
+                    break;
+                }
+            }
+            servers_addresses.remove(index);
+            println!("Server {} is down", sender_address);
+            continue;
+        }
+
+        let y = "I am up".as_bytes();
+        if buffer[0..y.len()] == y[..] {
+            let servers_addresses = &mut *SERVER_ADDRESSES.lock().await;
+            servers_addresses.push(sender_address.to_socket_addrs().unwrap().next().unwrap());
+            println!("Server {} is up", sender_address);
+            continue;
+        }
 
         let load_no = u32::from_ne_bytes([buffer[3], buffer[2], buffer[1], buffer[0]]);
         // extract client address from buffer
@@ -265,6 +361,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             });
     
             handles.push(handle);
+        }
+        else if i == 2 {
+            let s_socket_clone = servers_socket_arc.clone();
+            let handle = tokio::spawn( async move {
+                fault_tolerance(&s_socket_clone).await.unwrap();
+            });
+    
+            handles.push(handle);
+            
         }
         else{
         }
