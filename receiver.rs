@@ -7,7 +7,7 @@ fn main() -> std::io::Result<()> {
     let mut total_segments = 0;
 
     loop {
-        let mut buffer = [0; 1024];
+        let mut buffer = [0; 2 * 1024];
         let (n, _) = socket.recv_from(&mut buffer)?;
 
         let data = &buffer[..n];
