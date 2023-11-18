@@ -22,8 +22,8 @@ struct ElectionData{
 lazy_static! {
     static ref SERVER_ADDRESSES: Mutex<Vec<SocketAddr>> = {
         let mut vec = Vec::new();
-        vec.push("127.0.0.1:8082".to_socket_addrs().unwrap().next().unwrap());
-        vec.push("127.0.0.1:8084".to_socket_addrs().unwrap().next().unwrap());
+        vec.push("10.7.57.254:8080".to_socket_addrs().unwrap().next().unwrap());
+        vec.push("10.7.57.176:8080".to_socket_addrs().unwrap().next().unwrap());
         Mutex::new(vec)
     };
 
@@ -322,8 +322,8 @@ async fn handle_server(servers_socket: &UdpSocket, client_socket: &UdpSocket) ->
 }
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let servers_socket = UdpSocket::bind("127.0.0.1:8080").await?;
-    let clients_socket = UdpSocket::bind("127.0.0.1:8081").await?;
+    let servers_socket = UdpSocket::bind("10.7.57.72:8080").await?;
+    let clients_socket = UdpSocket::bind("10.7.57.72:8081").await?;
 
     println!("Server started at {}", servers_socket.local_addr().unwrap());
 
