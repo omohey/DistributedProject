@@ -90,15 +90,15 @@ fn send_data(socket: &UdpSocket, address: &str, data: &[u8]) -> io::Result<usize
 fn main() -> io::Result<()> {
 
 
-    let socket = UdpSocket::bind("127.0.0.1:0")?; // Binding to 0 allows the OS to choose an available port
+    let socket = UdpSocket::bind("10.7.57.199:0")?; // Binding to 0 allows the OS to choose an available port
     println!("Client started on port {}", socket.local_addr()?);
 
     // Get the maximum UDP payload size allowed by the OS
     
 
-    let server1_address = "127.0.0.1:8081";
-    let server2_address = "127.0.0.1:8083";
-    let server3_address = "127.0.0.1:8085";
+    let server1_address = "10.7.57.254:8081";
+    let server2_address = "10.7.57.176:8081";
+    let server3_address = "10.7.57.72:8081";
 
     let mut iteration = 0;
 
@@ -109,9 +109,14 @@ fn main() -> io::Result<()> {
 
         println!("Sending request to server {}: {}", server1_address, input);
 
-        send_data(&socket, server1_address, &input.to_ne_bytes())?;
-        send_data(&socket, server2_address, &input.to_ne_bytes())?;
-        send_data(&socket, server3_address, &input.to_ne_bytes())?;
+        // send_data(&socket, server1_address, &input.to_ne_bytes())?;
+        // send_data(&socket, server2_address, &input.to_ne_bytes())?;
+        // send_data(&socket, server3_address, &input.to_ne_bytes())?;
+
+
+        socket.send_to(&input.to_ne_bytes(), server1_address.to_socket_addrs().unwrap().next().unwrap()); 
+        socket.send_to(&input.to_ne_bytes(), server2_address.to_socket_addrs().unwrap().next().unwrap());
+        socket.send_to(&input.to_ne_bytes(), server3_address.to_socket_addrs().unwrap().next().unwrap());
 
         let mut buffer1 = [0; 1024];
         let (size, source) = socket.recv_from(&mut buffer1)?;
@@ -124,7 +129,7 @@ fn main() -> io::Result<()> {
 
             let mut image_bytes = Vec::new();
             let mut f;
-            f = File::open("./src/image2.jpg")?;
+            f = File::open("./src/image3.jpg")?;
             f.read_to_end(&mut image_bytes)?;
 
             let image_size = image_bytes.len();
@@ -151,8 +156,8 @@ fn main() -> io::Result<()> {
                 buffer.extend_from_slice(&image_bytes[start..end]);
                 send_data(&socket, source.to_string().as_str(), &buffer)?;
                 // sleep for 10ms
-                std::thread::sleep(std::time::Duration::from_secs(5));
-                // std::thread::sleep(std::time::Duration::from_millis(1));
+                
+                std::thread::sleep(std::time::Duration::from_millis(1));
             }
 
             // // receive the encrypted image from the server
