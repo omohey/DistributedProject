@@ -32,7 +32,7 @@ lazy_static! {
         Mutex::new(load)
     };
 
-    static ref REQUEST_DATA_MAP: Mutex<HashMap<SocketAddr, Vec<ElectionData>>> = {
+    static ref REQUEST_DATA_MAP: Mutex<HashMap<String, Vec<ElectionData>>> = {
         let map = HashMap::new();
         Mutex::new(map)
     };
@@ -97,7 +97,7 @@ async fn handle_client(clients_socket: &UdpSocket, servers_socket: &UdpSocket) -
                 println!("HERE6");
                 // need to delete data for key with client address from REQUEST_DATA_MAP
                 let election_data_map = &mut *REQUEST_DATA_MAP.lock().await;
-                election_data_map.remove(&client_address);
+                election_data_map.remove(&client_address.to_string());
                 println!("HERE5");
                 
                 let mut buffer = myload.to_be_bytes().to_vec();
@@ -280,11 +280,15 @@ async fn handle_server(servers_socket: &UdpSocket, client_socket: &UdpSocket) ->
         println!("Load of sender {} is {} for client {}", sender_address, load_no, client_addr);
         let election_data_map = &mut *REQUEST_DATA_MAP.lock().await;
         let entry = election_data_map
-            .entry(client_addr)
+            .entry(client_addr.to_string())
             .or_insert(Vec::new());
         entry.push(ElectionData{ load: load_no, server_address: sender_address });
         let server_len = SERVER_ADDRESSES.lock().await.len();
         println!("Server length is: {}", server_len);
+        println!("Entry length is: {}", entry.len());
+        for i in 0..entry.len(){
+            println!("Load of server {} is {} for client {}", entry[i].server_address, entry[i].load, client_addr);
+        }
         if entry.len() == server_len {
             let my_load = &mut *LOAD.lock().await;
 
