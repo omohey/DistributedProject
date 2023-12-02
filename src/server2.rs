@@ -125,7 +125,9 @@ async fn handle_client(clients_socket: &UdpSocket, servers_socket: &UdpSocket) -
                 buffer.extend(port_bytes.iter());
                 println!("HERE3");
                 for server_address in servers_addresses.as_slice() {
-                    send_response(servers_socket, server_address, &buffer).await?;   
+                    // send_response(servers_socket, server_address, &buffer).await?; 
+                    servers_socket.send_to(&buffer, server_address).await?;
+  
                 }   
                 println!("HERE4");    
             },
@@ -194,10 +196,57 @@ async fn handle_client(clients_socket: &UdpSocket, servers_socket: &UdpSocket) -
                     let entry = directory
                         .get_mut(&client_address.to_string());
                     entry.unwrap().online = 1;
+                    let entry = directory
+                        .get_mut(&client_address.to_string());
+                    let clients_waiting = &mut entry.unwrap().clients_waiting;
+                    let no_clients = clients_waiting.len();
+                    println!("No clients waiting: {}", no_clients);
+                    if (no_clients == 0) {
+                        continue;
+                    }
+
+                    // only the server with the least address will send the response
+                    // get my address
+                    let mut min = servers_socket.local_addr().unwrap();
+
+                    for server_address in SERVER_ADDRESSES.lock().await.as_slice() {
+                        if *server_address < min {
+                            min = *server_address;
+                        }
+                    }
+
+                    println!("Min address is: {}", min);
+
+                    if min != servers_socket.local_addr().unwrap() {
+                        continue;
+                    }
+
+                    for i in 0..no_clients {
+                        let client_addr = clients_waiting[i].clone();
+
+                        // send to client_addr that client_address is online
+                        let mut buffer = Vec::new();
+                        let input :u8 = 3;
+                        buffer.push(input);
+
+                        println!("sending to client with address: {}", client_addr);
+                        
+                        let message = "The client with address ".to_string() + &client_address.to_string() + " is online";
+                        let message_bytes = message.as_bytes();
+                        buffer.extend_from_slice(&message_bytes);
+                        send_response(&clients_socket, &client_addr.to_socket_addrs().unwrap().next().unwrap() , &buffer).await?;
+
+                    }
+                    
                 }
                 else {
                     directory.insert(client_address.to_string(), DirectoryEntry{ online: 1, clients_waiting: Vec::new() });
-                }                
+                }
+                // print directory for debugging
+                for (key, value) in directory.iter() {
+                    println!("{}: {}", key, value.online);
+                }
+
             },
             3 => {  // register as offline
                 let directory = &mut *DIRECTORY.lock().await;
@@ -238,6 +287,22 @@ async fn handle_client(clients_socket: &UdpSocket, servers_socket: &UdpSocket) -
                 }
                 send_response(&clients_socket, &client_address , &buffer).await?;
             },
+            5 => { // add client to waitlist 
+
+                // get client address from buffer
+                let client_addr = SocketAddr::new(Ipv4Addr::new(data[1], data[2], data[3], data[4]).into(), u16::from_ne_bytes([data[6], data[5]]));
+                let directory = &mut *DIRECTORY.lock().await;
+                if directory.contains_key(&client_addr.to_string()) {
+                    let entry = directory
+                        .get_mut(&client_addr.to_string());
+                    entry.unwrap().clients_waiting.push(client_address.to_string());
+                    println!("Added client {} to waitlist of client {}", client_address, client_addr);
+                }
+                else {
+                    directory.insert(client_addr.to_string(), DirectoryEntry{ online: 0, clients_waiting: vec![client_address.to_string()] });
+                }
+
+            }
             _ => {
                 println!("Invalid operation flag");
             }
@@ -384,12 +449,9 @@ async fn handle_server(servers_socket: &UdpSocket, client_socket: &UdpSocket) ->
 
 use std::env;
 
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
-    env::set_var("RUST_BACKTRACE", "1");
-    
     let servers_socket = UdpSocket::bind("127.0.0.1:8082").await?;
     let clients_socket = UdpSocket::bind("127.0.0.1:8083").await?;
 

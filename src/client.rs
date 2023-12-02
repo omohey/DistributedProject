@@ -198,7 +198,7 @@ async fn main_thread(socket: &UdpSocket, client_socket: &UdpSocket) -> Result<()
                 i += 1;
             }
             // get the client address
-            let client_addr = path_without_prefix.to_str().unwrap()[0..i].to_string();
+            let the_client_addr = path_without_prefix.to_str().unwrap()[0..i].to_string();
             println!("i: {}", i);
 
 
@@ -230,32 +230,139 @@ async fn main_thread(socket: &UdpSocket, client_socket: &UdpSocket) -> Result<()
             buffer.push(image_no);
 
 
-            println!("Sending request to client {}: {}", client_addr, input);
+            // Check that client is online
+              // do election
+              let input:u8 = 0;
+              let mut buffer = Vec::new();
+              buffer.push(input);
+      
+              println!("Sending request to server {}: {}", server1_address, input);
+      
+              socket.send_to(&input.to_ne_bytes(), server1_address.to_socket_addrs().unwrap().next().unwrap()); 
+              socket.send_to(&input.to_ne_bytes(), server2_address.to_socket_addrs().unwrap().next().unwrap());
+              socket.send_to(&input.to_ne_bytes(), server3_address.to_socket_addrs().unwrap().next().unwrap());
+      
+              let mut buffer1 = [0; 1024];
+              let (size, source) = socket.recv_from(&mut buffer1)?;
+      
+              let response1 = String::from_utf8_lossy(&buffer1);
+      
+              println!("Received response from server: {}", response1);
+              println!("The server address is: {}", source);
 
-            socket.send_to(&buffer, client_addr.to_socket_addrs().unwrap().next().unwrap());
+              let selected_server = source;
+  
+              // request all online clients from server
+              let input:u8 = 4;
+              let mut buffer = Vec::new();
+              buffer.push(input);
+  
+              println!("Sending request to server {}: {}", source, input);
+  
+              socket.send_to(&input.to_ne_bytes(), source).unwrap();
+  
+              const INITIAL_BUFFER_SIZE: usize = 65300; // Initial buffer size, change as needed
+      
+              let mut buffer2 = vec![0u8; INITIAL_BUFFER_SIZE]; // Create a buffer with an initial size
+              let (size, source) = socket.recv_from(&mut buffer2)?;
+  
+              buffer2.resize(size, 0); // Resize the buffer to fit the received data 
+  
+              let no_clients :u8 = buffer2[0];
+  
+              // add all clients except the myself to a vector
+              let mut clients = Vec::new();
+              for i in 0..no_clients {
+                  let client_addr = SocketAddr::new(Ipv4Addr::new(buffer2[1 + i as usize * 6], buffer2[2 + i as usize * 6], buffer2[3 + i as usize * 6], buffer2[4 + i as usize * 6]).into(), u16::from_be_bytes([buffer2[5 + i as usize * 6], buffer2[6 + i as usize * 6]]));
+                  if client_addr == socket.local_addr().unwrap() {
+                      continue;
+                  }
+                  clients.push(client_addr);
+  
+              }
 
-            // receive the client's response
-            const INITIAL_BUFFER_SIZE: usize = 65300; // Initial buffer size, change as needed
+                // check if the client is online
+                let mut client_online = false;
+                for client in clients {
+                    if client.to_string() == the_client_addr {
+                        client_online = true;
+                        break;
+                    }
+                }
 
-            let mut buffer2 = vec![0u8; INITIAL_BUFFER_SIZE]; // Create a buffer with an initial size
-            let (size, source) = socket.recv_from(&mut buffer2)?;
+                if client_online == false {
+                    println!("Client {} is offline\nDo you want to get a notification when he is back online? (y/n)", the_client_addr);
+                    let mut input = String::new();
+                    std::io::stdin().read_line(&mut input)?;
+                    let input = input.trim();
 
-            buffer2.resize(size, 0); // Resize the buffer to fit the received data
+                    if input == "y" {
+                        // send to server to add the client to the waiting list
+                        let input:u8 = 5;
+                        let mut buffer = Vec::new();
+                        buffer.push(input);
 
-            let response = buffer2[0];
+                        // send the client address
+                        let client_addr_bytes: [u8; 4];
+                        let port_bytes: [u8; 2]; 
+                        if let SocketAddr::V4(v4) = the_client_addr.parse::<SocketAddr>().unwrap() {
+                            client_addr_bytes = v4.ip().octets();
+                            port_bytes = v4.port().to_be_bytes();
+                        }
+                        else {
+                            client_addr_bytes = [0; 4];
+                            port_bytes = [0; 2];
+                        }
+                        buffer.extend(client_addr_bytes.iter());
+                        buffer.extend(port_bytes.iter()); 
 
-            if response == 0 {
-                println!("Client denied your request");
-            }
-            else if response == 1 {
-                println!("Client approved your request");
-                // update the number of accesses
-                image_bytes[len - 1] = image_bytes[len - 1] + input;
-                // write to the image to update the number of accesses
-                let mut f = File::create(file_path)?;
-                f.write_all(&image_bytes)?;
-            }
+                        println!("Sending request to server {}: {}", selected_server, input);
 
+                        socket.send_to(&buffer, server1_address).unwrap();
+                        socket.send_to(&buffer, server2_address).unwrap();
+                        socket.send_to(&buffer, server3_address).unwrap();
+                    }
+                    else if input == "n" {
+                    }
+
+        
+
+                }
+                else {
+                    println!("Sending request to client {}: {}", the_client_addr, input);
+
+                    socket.send_to(&buffer, the_client_addr.to_socket_addrs().unwrap().next().unwrap());
+
+                    // receive the client's response
+                    const INITIAL_BUFFER_SIZE: usize = 65300; // Initial buffer size, change as needed
+
+                    let mut buffer2 = vec![0u8; INITIAL_BUFFER_SIZE]; // Create a buffer with an initial size
+                    let (size, source) = socket.recv_from(&mut buffer2)?;
+
+                    buffer2.resize(size, 0); // Resize the buffer to fit the received data
+
+                    let response = buffer2[0];
+
+                    if response == 0 {
+                        println!("Client denied your request");
+                    }
+                    else if response == 1 {
+                        println!("Client approved your request");
+                        // update the number of accesses
+                        image_bytes[len - 1] = image_bytes[len - 1] + input;
+                        // write to the image to update the number of accesses
+                        let mut f = File::create(file_path)?;
+                        f.write_all(&image_bytes)?;
+                    }
+
+
+                }
+
+
+            
+
+
+            
         }
         else if input == 3 { // decrypt and view one of the photos in ./src/received
             // get a list of all files in ./src/received
@@ -599,6 +706,15 @@ async fn main_thread(socket: &UdpSocket, client_socket: &UdpSocket) -> Result<()
                 // write to the image to update the number of accesses
                 let mut f = File::create(path)?;
                 f.write_all(&image_bytes)?;
+                
+            }
+            else if request_flag == 3 { // server says that client is online
+                // message received starts from the second byte
+                let client_addr_bytes = &buffer2[1..size];
+                // get message as string
+                let client_addr = String::from_utf8_lossy(client_addr_bytes);
+                println!("Received message from server\nMessage: {}", client_addr);
+
                 
             }
         }
