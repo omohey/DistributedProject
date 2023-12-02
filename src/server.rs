@@ -19,11 +19,16 @@ struct ElectionData{
     server_address: SocketAddr,
 }
 
+struct DirectoryEntry{
+    online: u8,
+    clients_waiting: Vec<String>,
+}
+
 lazy_static! {
     static ref SERVER_ADDRESSES: Mutex<Vec<SocketAddr>> = {
         let mut vec = Vec::new();
-        vec.push("10.7.57.254:8080".to_socket_addrs().unwrap().next().unwrap());
-        vec.push("10.7.57.176:8080".to_socket_addrs().unwrap().next().unwrap());
+        vec.push("127.0.0.1:8082".to_socket_addrs().unwrap().next().unwrap());
+        vec.push("127.0.0.1:8084".to_socket_addrs().unwrap().next().unwrap());
         Mutex::new(vec)
     };
 
@@ -45,6 +50,11 @@ lazy_static! {
     static ref DOWN: Mutex<bool> = {
         let down = false;
         Mutex::new(down)
+    };
+
+    static ref DIRECTORY: Mutex<HashMap<String, DirectoryEntry>> = {
+        let map = HashMap::new();
+        Mutex::new(map)
     };
 }
 
@@ -87,9 +97,8 @@ async fn handle_client(clients_socket: &UdpSocket, servers_socket: &UdpSocket) -
             continue;
         }
         
-        // let pay_load = data[1..5].to_vec();
         match operation_flag {
-            0 => {
+            0 => {  // election
                 println!("Received a request to start an election");
                 let servers_addresses = SERVER_ADDRESSES.lock().await.clone();
                 println!("HERE7");
@@ -120,8 +129,7 @@ async fn handle_client(clients_socket: &UdpSocket, servers_socket: &UdpSocket) -
                 }   
                 println!("HERE4");    
             },
-            1 => {
-                // remove data[0] and save the rest as an image
+            1 => { // encrypt image
                 let mut buffer = data[1..].to_vec();
 
                 let frag_no :u8 = buffer[0];
@@ -152,7 +160,7 @@ async fn handle_client(clients_socket: &UdpSocket, servers_socket: &UdpSocket) -
                 f.read_to_end(&mut defualt)?;
 
                 // append to default the image received from client
-                defualt.extend_from_slice(&image_bytes); // kanet .append                
+                defualt.extend_from_slice(&image_bytes);             
 
                 let image_size = defualt.len();
                 println!("Image size: {}", image_size);
@@ -178,13 +186,65 @@ async fn handle_client(clients_socket: &UdpSocket, servers_socket: &UdpSocket) -
                 }
                 
                 *load -= 1;
-                // send the image to the client
-                // send_response(&clients_socket, &client_address, &defualt).await?;
+            },
+            2 => {  // register as online
+                // Add client address to directory
+                let directory = &mut *DIRECTORY.lock().await;
+                if directory.contains_key(&client_address.to_string()) {
+                    let entry = directory
+                        .get_mut(&client_address.to_string());
+                    entry.unwrap().online = 1;
+                }
+                else {
+                    directory.insert(client_address.to_string(), DirectoryEntry{ online: 1, clients_waiting: Vec::new() });
+                }
+                // print directory for debugging
+                for (key, value) in directory.iter() {
+                    println!("{}: {}", key, value.online);
+                }
+
+            },
+            3 => {  // register as offline
+                let directory = &mut *DIRECTORY.lock().await;
+                if directory.contains_key(&client_address.to_string()) {
+                    let entry = directory
+                        .get_mut(&client_address.to_string());
+                    entry.unwrap().online = 0;
+                }
+            },
+            4 => { // send online clients
+                let directory = &mut *DIRECTORY.lock().await;
+                let mut buffer = Vec::new();
+                let mut online_clients = Vec::new();
+
+                for (key, value) in directory.iter() {
+                    if value.online == 1 {
+                        online_clients.push(key.clone());
+                    }
+                }
+                
+                let no_clients = online_clients.len();
+                buffer.push(no_clients as u8);
+
+                for i in 0..no_clients {
+                    let client_addr = online_clients[i].clone();
+                    let client_addr_bytes: [u8; 4];
+                    let port_bytes: [u8; 2]; 
+                    if let SocketAddr::V4(v4) = client_addr.parse::<SocketAddr>().unwrap() {
+                        client_addr_bytes = v4.ip().octets();
+                        port_bytes = v4.port().to_be_bytes();
+                    }
+                    else {
+                        client_addr_bytes = [0; 4];
+                        port_bytes = [0; 2];
+                    }
+                    buffer.extend(client_addr_bytes.iter());
+                    buffer.extend(port_bytes.iter());
+                }
+                send_response(&clients_socket, &client_address , &buffer).await?;
             },
             _ => {
-                // let new_result = process_request(&operation_flag, &pay_load).await?;
-                // println!("Result is: {}", new_result);
-                // send_response(&clients_socket, &client_address, &new_result.to_ne_bytes().to_vec()).await?;
+                println!("Invalid operation flag");
             }
         }
     }
@@ -290,6 +350,7 @@ async fn handle_server(servers_socket: &UdpSocket, client_socket: &UdpSocket) ->
             println!("Load of server {} is {} for client {}", entry[i].server_address, entry[i].load, client_addr);
         }
         if entry.len() == server_len {
+
             let my_load = &mut *LOAD.lock().await;
 
             let mut least_load = *my_load;
@@ -324,10 +385,17 @@ async fn handle_server(servers_socket: &UdpSocket, client_socket: &UdpSocket) ->
         
     }
 }
+
+
+use std::env;
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let servers_socket = UdpSocket::bind("10.7.57.72:8080").await?;
-    let clients_socket = UdpSocket::bind("10.7.57.72:8081").await?;
+
+    env::set_var("RUST_BACKTRACE", "1");
+
+    let servers_socket = UdpSocket::bind("127.0.0.1:8080").await?;
+    let clients_socket = UdpSocket::bind("127.0.0.1:8081").await?;
 
     println!("Server started at {}", servers_socket.local_addr().unwrap());
 
