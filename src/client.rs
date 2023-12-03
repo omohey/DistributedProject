@@ -88,14 +88,32 @@ fn send_data(socket: &UdpSocket, address: &str, data: &[u8]) -> io::Result<usize
     socket.send_to(data, address)
 }
 
-async fn listen_clients(server_socket: &UdpSocket, client_socket: &UdpSocket) -> Result<(), Box<dyn std::error::Error>> {
+async fn listen_clients(server_socket: &UdpSocket, listen_socket: &UdpSocket) -> Result<(), Box<dyn std::error::Error>> {
     loop{
-    //     let mut input = String::new();
-    // std::io::stdin().read_line(&mut input)?;
-    // let input = input.trim();
-    // println!("You typeddd: {}", input);
-    //                 std::thread::sleep(std::time::Duration::from_millis(1));
 
+        const INITIAL_BUFFER_SIZE: usize = 65300; // Initial buffer size, change as needed
+    
+        let mut buffer2 = vec![0u8; INITIAL_BUFFER_SIZE]; // Create a buffer with an initial size
+        let (size, source) = listen_socket.recv_from(&mut buffer2)?;
+
+        buffer2.resize(size, 0); // Resize the buffer to fit the received data
+
+        let request_flag :u8 = buffer2[0];
+
+        
+        if request_flag == 0 { // client wants to get my images
+            println!("Client {} wants to get my images, please press 4", source);
+        }
+        else if request_flag == 1 { // client wants to increase their accesses
+            println!("Client {} wants to increase their accesses, please press 4", source);
+        }
+        else if request_flag == 2 { // client wants to decrease access
+            println!("Client {} wants to decrease access, please press 4", source);
+        }
+        else if request_flag == 3 { // server says that client is online
+            println!("Client {} is online", source);
+        }
+        
     }
     Ok(())
 }
@@ -331,6 +349,18 @@ async fn main_thread(socket: &UdpSocket, client_socket: &UdpSocket) -> Result<()
                     println!("Sending request to client {}: {}", the_client_addr, input);
 
                     socket.send_to(&send_buffer, the_client_addr.to_socket_addrs().unwrap().next().unwrap());
+
+                    // send to same ip but port + 1
+                    let client = the_client_addr.to_socket_addrs().unwrap().next().unwrap();
+                    let cl_ip = client.ip();
+                    let cl_port = client.port() + 1;
+                    let cl_addr = SocketAddr::new(cl_ip, cl_port);
+                    let input:u8 = 1;
+                    let mut buffer = Vec::new();
+                    buffer.push(input);
+
+
+                    socket.send_to(&buffer, cl_addr).unwrap();
 
                     // receive the client's response
                     const INITIAL_BUFFER_SIZE: usize = 65300; // Initial buffer size, change as needed
@@ -801,8 +831,17 @@ async fn main_thread(socket: &UdpSocket, client_socket: &UdpSocket) -> Result<()
                 buffer.push(input);
 
                 println!("Sending request to client {}: {}", client_addr, input);
-
+                /* CHANGETHIS */
                 socket.send_to(&input.to_ne_bytes(), client_addr).unwrap();
+                let input = 0;
+                let mut buffer = Vec::new();
+                buffer.push(input);
+                let cl_ip = client_addr.ip();
+                let cl_port = client_addr.port() + 1;
+                let cl_addr = SocketAddr::new(cl_ip, cl_port);
+                socket.send_to(&buffer, cl_addr).unwrap();
+
+
 
                 // receive the images from the client
                 const INITIAL_BUFFER_SIZE: usize = 65300; // Initial buffer size, change as needed
@@ -966,7 +1005,16 @@ async fn main_thread(socket: &UdpSocket, client_socket: &UdpSocket) -> Result<()
 
             println!("Sending request to client {}: {}", client_addr, input);
 
-            socket.send_to(&buffer, client_addr).unwrap();
+            socket.send_to(&buffer, client_addr.clone()).unwrap();
+            // send to same ip but port + 1
+            let client = client_addr.to_socket_addrs().unwrap().next().unwrap();
+            let cl_ip = client.ip();
+            let cl_port = client.port() + 1;
+            let cl_addr = SocketAddr::new(cl_ip, cl_port);
+            let input:u8 = 2;
+            let mut buffer = Vec::new();
+            buffer.push(input);
+            socket.send_to(&buffer, cl_addr).unwrap();
         }
 
         // Making the thread sleep for 1 second
@@ -981,11 +1029,14 @@ async fn main_thread(socket: &UdpSocket, client_socket: &UdpSocket) -> Result<()
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let socket = UdpSocket::bind("127.0.0.1:0")?; // Binding to 0 allows the OS to choose an available port
-    let c_socket_clone = UdpSocket::bind("127.0.0.1:0")?;
+    // let c_socket_clone = UdpSocket::bind("127.0.0.1:0")?;
+    // create a socket with port number equal to socket + 1
+    let listening_socket = UdpSocket::bind("127.0.0.1:".to_string() + &(socket.local_addr()?.port() + 1).to_string())?;
     println!("Client started on port {}", socket.local_addr()?);
+    println!("Listening socket started on port {}", listening_socket.local_addr()?);
 
     let servers_socket_arc = Arc::new(socket);    
-    // let clients_socket_arc = Arc::new(clients_socket);    
+    let listening_socket_arc = Arc::new(listening_socket);    
 
     let num_threads = 2; // Number of threads to handle clients
     let mut handles = Vec::new();
@@ -994,7 +1045,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         if i == 0
         {
             let s_socket_clone = servers_socket_arc.clone();
-            let c_socket_clone = c_socket_clone.try_clone().unwrap();
+            let c_socket_clone = listening_socket_arc.clone();
             let handle = tokio::spawn( async move {
                 main_thread(
                     &s_socket_clone,
@@ -1008,7 +1059,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         else
         {
             let s_socket_clone = servers_socket_arc.clone();
-            let c_socket_clone = c_socket_clone.try_clone().unwrap();
+            let c_socket_clone = listening_socket_arc.clone();
             let handle = tokio::spawn( async move {
                 listen_clients(
                     &s_socket_clone,

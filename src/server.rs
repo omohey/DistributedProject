@@ -234,7 +234,14 @@ async fn handle_client(clients_socket: &UdpSocket, servers_socket: &UdpSocket) -
                         let message_bytes = message.as_bytes();
                         buffer.extend_from_slice(&message_bytes);
                         send_response(&clients_socket, &client_addr.to_socket_addrs().unwrap().next().unwrap() , &buffer).await?;
-
+                        let input = 3;
+                        let mut buffer = Vec::new();
+                        buffer.push(input);
+                        let client_sock = client_addr.to_socket_addrs().unwrap().next().unwrap();
+                        let cl_ip = client_sock.ip();
+                        let cl_port = client_sock.port() + 1;
+                        let cl_addr = SocketAddr::new(cl_ip, cl_port);
+                        send_response(&clients_socket, &cl_addr , &buffer).await?;
                     }
                     
                 }
