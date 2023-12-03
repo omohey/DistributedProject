@@ -27,8 +27,8 @@ struct DirectoryEntry{
 lazy_static! {
     static ref SERVER_ADDRESSES: Mutex<Vec<SocketAddr>> = {
         let mut vec = Vec::new();
-        vec.push("127.0.0.1:8082".to_socket_addrs().unwrap().next().unwrap());
-        vec.push("127.0.0.1:8084".to_socket_addrs().unwrap().next().unwrap());
+        vec.push("127.0.0.2:8080".to_socket_addrs().unwrap().next().unwrap());
+        vec.push("127.0.0.3:8080".to_socket_addrs().unwrap().next().unwrap());
         Mutex::new(vec)
     };
 
@@ -127,7 +127,6 @@ async fn handle_client(clients_socket: &UdpSocket, servers_socket: &UdpSocket) -
                 for server_address in servers_addresses.as_slice() {
                     // send_response(servers_socket, server_address, &buffer).await?; 
                     servers_socket.send_to(&buffer, server_address).await?;
-  
                 }   
                 println!("HERE4");    
             },
@@ -328,7 +327,8 @@ async fn fault_tolerance(servers_socket: &UdpSocket) -> Result<(), Box<dyn std::
             let x = "I am down".as_bytes();
             buffer.extend_from_slice(x);
             for server_address in servers_addresses.as_slice() {
-                send_response(&servers_socket, server_address, &buffer).await?;   
+                servers_socket.send_to(&buffer, server_address).await?;
+                // send_response(&servers_socket, server_address, &buffer).await?;   
             }
 
         }
@@ -344,7 +344,8 @@ async fn fault_tolerance(servers_socket: &UdpSocket) -> Result<(), Box<dyn std::
                 let x = "I am up".as_bytes();
                 buffer.extend_from_slice(x);
                 for server_address in servers_addresses.as_slice() {
-                    send_response(&servers_socket, server_address, &buffer).await?;   
+                    servers_socket.send_to(&buffer, server_address).await?;
+                    // send_response(&servers_socket, server_address, &buffer).await?;   
                 }
             }
             

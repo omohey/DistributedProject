@@ -106,14 +106,13 @@ async fn main_thread(socket: &UdpSocket, client_socket: &UdpSocket) -> Result<()
 
 
     let server1_address = "127.0.0.1:8081";
-    let server2_address = "127.0.0.1:8083";
-    let server3_address = "127.0.0.1:8085";
+    let server2_address = "127.0.0.2:8081";
+    let server3_address = "127.0.0.3:8081";
 
     let mut iteration = 0;
 
     loop {
-        println!("What do you want to do? \n0: Register as online \n1: Go offline\n2: Request increase in access from client\n
-        3: See received images\n4: Receive request from clients\n5: Request all online clients from server");
+        println!("What do you want to do? \n0: Register as online \n1: Go offline\n2: Request increase in access from client\n3: See received images\n4: Receive request from clients\n5: Request all online clients from server");
         let mut input = String::new();
         std::io::stdin().read_line(&mut input)?;
         let input = input.trim();
@@ -183,9 +182,9 @@ async fn main_thread(socket: &UdpSocket, client_socket: &UdpSocket) -> Result<()
 
             // send to client to request access increase
             let request_flag :u8 = 1;
-            let mut buffer = Vec::new();
-            buffer.push(request_flag);
-            buffer.push(input);
+            let mut send_buffer = Vec::new();
+            send_buffer.push(request_flag);
+            send_buffer.push(input);
 
             // get the client address using file name
             let path_without_prefix = file_path.strip_prefix("./src/received").unwrap();
@@ -227,7 +226,7 @@ async fn main_thread(socket: &UdpSocket, client_socket: &UdpSocket) -> Result<()
             let image_no:u8 = image_no.parse().unwrap();
             println!("image_no: {}", image_no);
 
-            buffer.push(image_no);
+            send_buffer.push(image_no);
 
 
             // Check that client is online
@@ -331,7 +330,7 @@ async fn main_thread(socket: &UdpSocket, client_socket: &UdpSocket) -> Result<()
                 else {
                     println!("Sending request to client {}: {}", the_client_addr, input);
 
-                    socket.send_to(&buffer, the_client_addr.to_socket_addrs().unwrap().next().unwrap());
+                    socket.send_to(&send_buffer, the_client_addr.to_socket_addrs().unwrap().next().unwrap());
 
                     // receive the client's response
                     const INITIAL_BUFFER_SIZE: usize = 65300; // Initial buffer size, change as needed
@@ -454,6 +453,8 @@ async fn main_thread(socket: &UdpSocket, client_socket: &UdpSocket) -> Result<()
             let request_flag :u8 = buffer2[0];
 
             println!("HERE");
+
+            println!("flag {}", request_flag);
 
             if request_flag == 0 { // client wants to get my images
                 // get a list of all files in ./src/images/compressed
@@ -628,6 +629,7 @@ async fn main_thread(socket: &UdpSocket, client_socket: &UdpSocket) -> Result<()
 
             }
             else if request_flag == 1 { // client wants to increase their accesses
+                println!("HERE2");
                 let newAccesses = buffer2[1];
                 let image_no = buffer2[2];
 
