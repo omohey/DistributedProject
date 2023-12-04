@@ -111,7 +111,11 @@ async fn listen_clients(server_socket: &UdpSocket, listen_socket: &UdpSocket) ->
             println!("Client {} wants to decrease access, please press 4", source);
         }
         else if request_flag == 3 { // server says that client is online
-            println!("Client {} is online", source);
+            // message received starts from the second byte
+            let client_addr_bytes = &buffer2[1..size];
+            // get message as string
+            let client_addr = String::from_utf8_lossy(client_addr_bytes);
+            println!("Received message from server\nMessage: {}", client_addr);
         }
         
     }
@@ -196,13 +200,13 @@ async fn main_thread(socket: &UdpSocket, client_socket: &UdpSocket) -> Result<()
             let mut input = String::new();
             std::io::stdin().read_line(&mut input)?;
             let input = input.trim();
-            let input:u8 = input.parse().unwrap();
+            let increase_access:u8 = input.parse().unwrap();
 
             // send to client to request access increase
             let request_flag :u8 = 1;
             let mut send_buffer = Vec::new();
             send_buffer.push(request_flag);
-            send_buffer.push(input);
+            send_buffer.push(increase_access);
 
             // get the client address using file name
             let path_without_prefix = file_path.strip_prefix("./src/received").unwrap();
@@ -378,7 +382,7 @@ async fn main_thread(socket: &UdpSocket, client_socket: &UdpSocket) -> Result<()
                     else if response == 1 {
                         println!("Client approved your request");
                         // update the number of accesses
-                        image_bytes[len - 1] = image_bytes[len - 1] + input;
+                        image_bytes[len - 1] = image_bytes[len - 1] + increase_access;
                         // write to the image to update the number of accesses
                         let mut f = File::create(file_path)?;
                         f.write_all(&image_bytes)?;
@@ -387,11 +391,6 @@ async fn main_thread(socket: &UdpSocket, client_socket: &UdpSocket) -> Result<()
 
                 }
 
-
-            
-
-
-            
         }
         else if input == 3 { // decrypt and view one of the photos in ./src/received
             // get a list of all files in ./src/received
@@ -799,8 +798,11 @@ async fn main_thread(socket: &UdpSocket, client_socket: &UdpSocket) -> Result<()
                 clients.push(client_addr);
 
             }
-
-            println!("Received {} clients", no_clients);
+            let n = clients.len();
+            println!("Received {} clients", n);
+            for (i, client) in clients.iter().enumerate() {
+                println!("{}: {}", i, client);
+            }
             println!("Do you want to send to view their images? (y/n)");
             let mut input = String::new();
             std::io::stdin().read_line(&mut input)?;

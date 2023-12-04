@@ -25,10 +25,10 @@ struct DirectoryEntry{
 }
 
 lazy_static! {
-    static ref SERVER_ADDRESSES: Mutex<Vec<SocketAddr>> = {
+    static ref SERVER_ADDRESSES: Mutex<Vec<String>> = {
         let mut vec = Vec::new();
-        vec.push("127.0.0.1:8080".to_socket_addrs().unwrap().next().unwrap());
-        vec.push("127.0.0.3:8080".to_socket_addrs().unwrap().next().unwrap());
+        vec.push("127.0.0.1:8080".to_string());
+        vec.push("127.0.0.3:8080".to_string());
         Mutex::new(vec)
     };
 
@@ -126,7 +126,7 @@ async fn handle_client(clients_socket: &UdpSocket, servers_socket: &UdpSocket) -
                 println!("HERE3");
                 for server_address in servers_addresses.as_slice() {
                     // send_response(servers_socket, server_address, &buffer).await?; 
-                    servers_socket.send_to(&buffer, server_address).await?;
+                    servers_socket.send_to(&buffer, server_address.to_socket_addrs().unwrap().next().unwrap()).await?;
                 }   
                 println!("HERE4");    
             },
@@ -209,8 +209,8 @@ async fn handle_client(clients_socket: &UdpSocket, servers_socket: &UdpSocket) -
                     let mut min = servers_socket.local_addr().unwrap();
 
                     for server_address in SERVER_ADDRESSES.lock().await.as_slice() {
-                        if *server_address < min {
-                            min = *server_address;
+                        if (*server_address).to_socket_addrs().unwrap().next().unwrap() < min {
+                            min = (*server_address).to_socket_addrs().unwrap().next().unwrap();
                         }
                     }
 
@@ -224,17 +224,18 @@ async fn handle_client(clients_socket: &UdpSocket, servers_socket: &UdpSocket) -
                         let client_addr = clients_waiting[i].clone();
 
                         // send to client_addr that client_address is online
+                        let input: u8 = 3;
                         let mut buffer = Vec::new();
-                        let input :u8 = 3;
                         buffer.push(input);
-
                         println!("sending to client with address: {}", client_addr);
-                        
                         let message = "The client with address ".to_string() + &client_address.to_string() + " is online";
                         let message_bytes = message.as_bytes();
                         buffer.extend_from_slice(&message_bytes);
-                        send_response(&clients_socket, &client_addr.to_socket_addrs().unwrap().next().unwrap() , &buffer).await?;
-
+                        let client_sock = client_addr.to_socket_addrs().unwrap().next().unwrap();
+                        let cl_ip = client_sock.ip();
+                        let cl_port = client_sock.port() + 1;
+                        let cl_addr = SocketAddr::new(cl_ip, cl_port);
+                        send_response(&clients_socket, &cl_addr , &buffer).await?;
                     }
                     
                 }
@@ -285,6 +286,8 @@ async fn handle_client(clients_socket: &UdpSocket, servers_socket: &UdpSocket) -
                     buffer.extend(port_bytes.iter());
                 }
                 send_response(&clients_socket, &client_address , &buffer).await?;
+                // decrement load
+                *load -= 1;
             },
             5 => { // add client to waitlist 
 
@@ -327,7 +330,7 @@ async fn fault_tolerance(servers_socket: &UdpSocket) -> Result<(), Box<dyn std::
             let x = "I am down".as_bytes();
             buffer.extend_from_slice(x);
             for server_address in servers_addresses.as_slice() {
-                servers_socket.send_to(&buffer, server_address).await?;
+                servers_socket.send_to(&buffer, server_address.to_socket_addrs().unwrap().next().unwrap()).await?;
                 // send_response(&servers_socket, server_address, &buffer).await?;   
             }
 
@@ -344,7 +347,7 @@ async fn fault_tolerance(servers_socket: &UdpSocket) -> Result<(), Box<dyn std::
                 let x = "I am up".as_bytes();
                 buffer.extend_from_slice(x);
                 for server_address in servers_addresses.as_slice() {
-                    servers_socket.send_to(&buffer, server_address).await?;
+                    servers_socket.send_to(&buffer, server_address.to_socket_addrs().unwrap().next().unwrap()).await?;
                     // send_response(&servers_socket, server_address, &buffer).await?;   
                 }
             }
@@ -377,7 +380,7 @@ async fn handle_server(servers_socket: &UdpSocket, client_socket: &UdpSocket) ->
             let mut servers_addresses = SERVER_ADDRESSES.lock().await;
             let mut index = 0;
             for i in 0..servers_addresses.len() {
-                if servers_addresses[i] == sender_address {
+                if servers_addresses[i].to_socket_addrs().unwrap().next().unwrap() == sender_address {
                     index = i;
                     break;
                 }
@@ -390,7 +393,7 @@ async fn handle_server(servers_socket: &UdpSocket, client_socket: &UdpSocket) ->
         let y = "I am up".as_bytes();
         if buffer[0..y.len()] == y[..] {
             let servers_addresses = &mut *SERVER_ADDRESSES.lock().await;
-            servers_addresses.push(sender_address.to_socket_addrs().unwrap().next().unwrap());
+            servers_addresses.push(sender_address.to_string());
             println!("Server {} is up", sender_address);
             continue;
         }
