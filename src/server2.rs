@@ -10,6 +10,8 @@ use std::io::{Read, Write};
 
 use tokio::sync::Mutex;
 use tokio::net::UdpSocket;
+use sysinfo::{CpuExt, System, SystemExt};
+
 
 extern crate lazy_static;
 use lazy_static::lazy_static;
@@ -33,6 +35,11 @@ lazy_static! {
     };
 
     static ref LOAD: Mutex<u32> = {
+        let load: u32 = 0;
+        Mutex::new(load)
+    };
+
+    static ref CPU_LOAD: Mutex<u32> = {
         let load: u32 = 0;
         Mutex::new(load)
     };
@@ -103,13 +110,32 @@ async fn handle_client(clients_socket: &UdpSocket, servers_socket: &UdpSocket) -
                 let servers_addresses = SERVER_ADDRESSES.lock().await.clone();
                 println!("HERE7");
                 let myload : u32= load.clone();
+
+                let mut sys = System::new_all();
+
+                // First we update all information of our `System` struct.
+                sys.refresh_all();
+            
+                sys.refresh_cpu(); // Refreshing CPU information.
+                let mut avgCpuUsage = 0.0;
+                for cpu in sys.cpus() {
+                    avgCpuUsage += cpu.cpu_usage();
+                    println!("{}% ", cpu.cpu_usage());
+                }
+                avgCpuUsage /= sys.cpus().len() as f32;
+                let cpuload : u32 = (avgCpuUsage * 100.0) as u32;
+                // let global CPU_LOAD = cpuload;
+                let loadglobal = &mut *CPU_LOAD.lock().await;
+                *loadglobal = cpuload;
+
+                let mut buffer = cpuload.to_be_bytes().to_vec();
                 println!("HERE6");
                 // need to delete data for key with client address from REQUEST_DATA_MAP
                 let election_data_map = &mut *REQUEST_DATA_MAP.lock().await;
                 election_data_map.remove(&client_address.to_string());
                 println!("HERE5");
                 
-                let mut buffer = myload.to_be_bytes().to_vec();
+                // let mut buffer = myload.to_be_bytes().to_vec();
                 // add client address with port number to buffer in 6 bytes
                 let client_address_bytes: [u8; 4];
                 let port_bytes: [u8; 2]; 
@@ -415,7 +441,7 @@ async fn handle_server(servers_socket: &UdpSocket, client_socket: &UdpSocket) ->
         }
         if entry.len() == server_len {
 
-            let my_load = &mut *LOAD.lock().await;
+            let my_load = &mut *CPU_LOAD.lock().await;
 
             let mut least_load = *my_load;
             let mut least_load_addr = client_socket.local_addr().unwrap();
@@ -439,6 +465,7 @@ async fn handle_server(servers_socket: &UdpSocket, client_socket: &UdpSocket) ->
             if least_load_addr == client_socket.local_addr().unwrap() {
                 println!("I am the leader sending to client with address: {}", client_addr);
                 let response = "Hello, client! I am the leader please send your request to me";
+                let my_load = &mut *LOAD.lock().await;
                 *my_load += 1;
                 client_socket.send_to(response.as_bytes(), client_addr).await?;
             }
@@ -452,6 +479,9 @@ async fn handle_server(servers_socket: &UdpSocket, client_socket: &UdpSocket) ->
 
 
 use std::env;
+extern crate sysinfo;
+
+
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -460,7 +490,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let clients_socket = UdpSocket::bind("127.0.0.2:8081").await?;
 
     println!("Server started at {}", servers_socket.local_addr().unwrap());
-
     
     let servers_socket_arc = Arc::new(servers_socket);    
     let clients_socket_arc = Arc::new(clients_socket);    
