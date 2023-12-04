@@ -6,6 +6,8 @@ use std::net::Ipv4Addr;
 use std::net::IpAddr;
 use std::fs::File;
 use std::io::{Read, Write};
+use std::thread;
+use std::time::Duration;
 
 
 use tokio::sync::Mutex;
@@ -62,6 +64,11 @@ lazy_static! {
     static ref DIRECTORY: Mutex<HashMap<String, DirectoryEntry>> = {
         let map = HashMap::new();
         Mutex::new(map)
+    };
+
+    static ref NOTIFY: Mutex<bool> = {
+        let notify = false;
+        Mutex::new(notify)
     };
 }
 
@@ -339,33 +346,17 @@ async fn handle_client(clients_socket: &UdpSocket, servers_socket: &UdpSocket) -
 }
 
 async fn fault_tolerance(servers_socket: &UdpSocket) -> Result<(), Box<dyn std::error::Error>> {
+    let mut down_old = false;
     loop {
-        // read from terminal
-        let mut input = String::new();
-        std::io::stdin().read_line(&mut input)?;
-        let input = input.trim();
-        // If character is 'd' then make the server down and if it is 'u' then make the server up
-        if input == "d" {
-            let down = &mut *DOWN.lock().await;
-            *down = true;
-            println!("I am now down");
-            // send to all servers that i am down
-            let servers_addresses = SERVER_ADDRESSES.lock().await.clone();
-
-            let mut buffer = Vec::new();
-            let x = "I am down".as_bytes();
-            buffer.extend_from_slice(x);
-            for server_address in servers_addresses.as_slice() {
-                servers_socket.send_to(&buffer, server_address.to_socket_addrs().unwrap().next().unwrap()).await?;
-                // send_response(&servers_socket, server_address, &buffer).await?;   
-            }
-
+        // sleep for 10 miliseconds
+        let down = &*DOWN.lock().await;
+        if *down == down_old {
+            continue;
         }
-        else if input == "u" {
-            let down = &mut *DOWN.lock().await;
-            if (*down){
-                *down = false;
-                println!("I am now up");
+        else {
+            down_old = *down;
+            if *down == false {
+                println!("I am now up2");
 
                 let servers_addresses = SERVER_ADDRESSES.lock().await.clone();
 
@@ -377,11 +368,53 @@ async fn fault_tolerance(servers_socket: &UdpSocket) -> Result<(), Box<dyn std::
                     // send_response(&servers_socket, server_address, &buffer).await?;   
                 }
             }
+        }
+
+
+
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        // //read from terminal
+        // let mut input = String::new();
+        // std::io::stdin().read_line(&mut input)?;
+        // let input = input.trim();
+        // // If character is 'd' then make the server down and if it is 'u' then make the server up
+        // if input == "d" {
+        //     let down = &mut *DOWN.lock().await;
+        //     *down = true;
+        //     println!("I am now down");
+        //     // send to all servers that i am down
+        //     let servers_addresses = SERVER_ADDRESSES.lock().await.clone();
+
+        //     let mut buffer = Vec::new();
+        //     let x = "I am down".as_bytes();
+        //     buffer.extend_from_slice(x);
+        //     for server_address in servers_addresses.as_slice() {
+        //         servers_socket.send_to(&buffer, server_address.to_socket_addrs().unwrap().next().unwrap()).await?;
+        //         // send_response(&servers_socket, server_address, &buffer).await?;   
+        //     }
+
+        // }
+        // else if input == "u" {
+        //     let down = &mut *DOWN.lock().await;
+        //     if (*down){
+        //         *down = false;
+        //         println!("I am now up");
+
+        //         let servers_addresses = SERVER_ADDRESSES.lock().await.clone();
+
+        //         let mut buffer = Vec::new();
+        //         let x = "I am up".as_bytes();
+        //         buffer.extend_from_slice(x);
+        //         for server_address in servers_addresses.as_slice() {
+        //             servers_socket.send_to(&buffer, server_address.to_socket_addrs().unwrap().next().unwrap()).await?;
+        //             // send_response(&servers_socket, server_address, &buffer).await?;   
+        //         }
+        //     }
             
-        }
-        else {
-            println!("Invalid input");
-        }
+        // }
+        // else {
+        //     println!("Invalid input");
+        // }
     }    
 }
 
@@ -394,7 +427,7 @@ async fn handle_server(servers_socket: &UdpSocket, client_socket: &UdpSocket) ->
             .await?;
 
         // if i am down do not respond
-        let down = &*DOWN.lock().await;
+        let down = &mut *DOWN.lock().await;
         if *down {
             println!("I am downS");
             continue;
@@ -433,7 +466,8 @@ async fn handle_server(servers_socket: &UdpSocket, client_socket: &UdpSocket) ->
             .entry(client_addr.to_string())
             .or_insert(Vec::new());
         entry.push(ElectionData{ load: load_no, server_address: sender_address });
-        let server_len = SERVER_ADDRESSES.lock().await.len();
+        let THE_SERVERS = SERVER_ADDRESSES.lock().await.clone();
+        let server_len = THE_SERVERS.len();
         println!("Server length is: {}", server_len);
         println!("Entry length is: {}", entry.len());
         for i in 0..entry.len(){
@@ -471,9 +505,78 @@ async fn handle_server(servers_socket: &UdpSocket, client_socket: &UdpSocket) ->
             }
             else {
                 println!("Leader is: {}", least_load_addr);
+
+                let mut highest_load = *my_load;
+                let mut highest_load_addr = client_socket.local_addr().unwrap();
+
+                if entry.len() == 1{
+                    continue;
+                }
+            
+                for i in 0..entry.len(){
+                    if entry[i].load > highest_load {
+                        highest_load = entry[i].load;
+                        highest_load_addr = entry[i].server_address;
+                    }
+                    else {
+                        if entry[i].load == highest_load {
+                            if entry[i].server_address > highest_load_addr {
+                                highest_load = entry[i].load;
+                                highest_load_addr = entry[i].server_address;
+                            }
+                        }
+                    }
+                    
+                }
+
+                let my_load = &mut *LOAD.lock().await;
+                if *my_load != 0 {
+                    continue;
+                } 
+                
+
+                println!("Highest load is: {}", highest_load);
+                println!("Highest load address is: {}", highest_load_addr);
+
+                if highest_load_addr == client_socket.local_addr().unwrap() {
+                    println!("I am going down");
+
+                    *down = true;
+                    // send to all servers that i am down
+                    
+                    let servers_addresses = THE_SERVERS;
+                    let mut buffer = Vec::new();
+                    let x = "I am down".as_bytes();
+                    buffer.extend_from_slice(x);
+                    let length = servers_addresses.len();
+                    println!("Length is: {}", length);
+                    for server_address in servers_addresses.as_slice() {
+                        println!("Sending to server: {}", server_address);
+                        servers_socket.send_to(&buffer, server_address.to_socket_addrs().unwrap().next().unwrap()).await?;
+                        // send_response(&servers_socket, server_address, &buffer).await?;   
+                    }
+
+                    // timeout for 10 seconds 
+                    let handle = tokio::spawn(async move {
+                        thread::sleep(Duration::from_secs(10));
+                        let down = &mut *DOWN.lock().await;
+                        *down = false;
+                        println!("I am now up");
+
+                        // let servers_addresses = SERVER_ADDRESSES.lock().await.clone();
+
+                        // let mut buffer = Vec::new();
+                        // let x = "I am up".as_bytes();
+                        // buffer.extend_from_slice(x);
+                        // for server_address in servers_addresses.as_slice() {
+                        //     servers_socket.send_to(&buffer, server_address.to_socket_addrs().unwrap().next().unwrap()).await?;
+                        //     // send_response(&servers_socket, server_address, &buffer).await?;   
+                        // }
+                    });
+                }
             }
         }
-        
+            
     }
 }
 
