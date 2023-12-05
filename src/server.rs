@@ -10,6 +10,7 @@ use std::thread;
 use std::time::Duration;
 
 
+use termion::input;
 use tokio::sync::Mutex;
 use tokio::net::UdpSocket;
 use sysinfo::{CpuExt, System, SystemExt};
@@ -453,10 +454,91 @@ async fn handle_server(servers_socket: &UdpSocket, client_socket: &UdpSocket) ->
         if buffer[0..y.len()] == y[..] {
             let servers_addresses = &mut *SERVER_ADDRESSES.lock().await;
             servers_addresses.push(sender_address.to_string());
+            // send the updated directory to all servers
+            let directory = &mut *DIRECTORY.lock().await;
+            let mut buffer = Vec::new();
+            let no_entries = directory.len();
+            let input = "Directory".as_bytes();
+            buffer.extend_from_slice(input);
+            
+            buffer.push(no_entries as u8);
+            for (key, value) in directory.iter() {
+                let client_addr = key.parse::<SocketAddr>().unwrap();
+                let client_addr_bytes: [u8; 4];
+                let port_bytes: [u8; 2]; 
+                if let SocketAddr::V4(v4) = client_addr {
+                    client_addr_bytes = v4.ip().octets();
+                    port_bytes = v4.port().to_be_bytes();
+                }
+                else {
+                    client_addr_bytes = [0; 4];
+                    port_bytes = [0; 2];
+                }
+                buffer.extend(client_addr_bytes.iter());
+                buffer.extend(port_bytes.iter());
+                buffer.push(value.online);
+                let no_clients: u8 = value.clients_waiting.len() as u8;
+                buffer.push(no_clients as u8);
+                for i in 0..value.clients_waiting.len() {
+                    let client_addr = value.clients_waiting[i].clone();
+                    let client_addr_bytes: [u8; 4];
+                    let port_bytes: [u8; 2]; 
+                    if let SocketAddr::V4(v4) = client_addr.parse::<SocketAddr>().unwrap() {
+                        client_addr_bytes = v4.ip().octets();
+                        port_bytes = v4.port().to_be_bytes();
+                    }
+                    else {
+                        client_addr_bytes = [0; 4];
+                        port_bytes = [0; 2];
+                    }
+                    buffer.extend(client_addr_bytes.iter());
+                    buffer.extend(port_bytes.iter());
+                }
+            }
             println!("Server {} is up", sender_address);
+            // send to the server with sender_address the directory
+            servers_socket.send_to(&buffer, sender_address).await?;
+            println!("Directory sent");
+            println!("Directory len: {}", directory.len());
+            for (key, value) in directory.iter() {
+                println!("{}: {}", key, value.online);
+                for i in 0..value.clients_waiting.len() {
+                    println!("{}: {}", key, value.clients_waiting[i]);
+                }
+            }
             continue;
         }
 
+        // if received "Directory" from another server update my directory
+        let z = "Directory".as_bytes();
+        if buffer[0..z.len()] == z[..] {
+            let mut directory = &mut *DIRECTORY.lock().await;
+            directory.clear();
+            let no_entries = buffer[z.len()];
+            let mut index = z.len() + 1;
+            for i in 0..no_entries {
+                let client_addr = SocketAddr::new(Ipv4Addr::new(buffer[index], buffer[index + 1], buffer[index + 2], buffer[index + 3]).into(), u16::from_ne_bytes([buffer[index + 5], buffer[index + 4]]));
+                let online = buffer[index + 6];
+                let no_clients = buffer[index + 7];
+                let mut clients_waiting = Vec::new();
+                for j in 0..no_clients {
+                    let client_addr = SocketAddr::new(Ipv4Addr::new(buffer[index + 8 + (j * 6) as usize], buffer[index + 9 + (j * 6)as usize], buffer[index + 10 + (j * 6)as usize], buffer[index + 11 + (j * 6) as usize]).into(), u16::from_ne_bytes([buffer[index + 13 + (j * 6) as usize], buffer[index + 12 + (j * 6) as usize]]));
+                    clients_waiting.push(client_addr.to_string());
+                }
+                directory.insert(client_addr.to_string(), DirectoryEntry{ online: online, clients_waiting: clients_waiting });
+                index += 8 + no_clients as usize * 6;
+            }
+            println!("Directory updated");
+            println!("Directory len: {}", directory.len());
+            for (key, value) in directory.iter() {
+                println!("{}: {}", key, value.online);
+                for i in 0..value.clients_waiting.len() {
+                    println!("{}: {}", key, value.clients_waiting[i]);
+                }
+            }
+
+            continue;
+        }
         let load_no = u32::from_ne_bytes([buffer[3], buffer[2], buffer[1], buffer[0]]);
         // extract client address from buffer
         let client_addr = SocketAddr::new(Ipv4Addr::new(buffer[4], buffer[5], buffer[6], buffer[7]).into(), u16::from_ne_bytes([buffer[9], buffer[8]]));
