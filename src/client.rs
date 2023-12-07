@@ -134,7 +134,7 @@ async fn main_thread(socket: &UdpSocket, client_socket: &UdpSocket) -> Result<()
     let mut iteration = 0;
 
     loop {
-        println!("What do you want to do? \n0: Register as online \n1: Go offline\n2: Request increase in access from client\n3: See received images\n4: Receive request from clients\n5: Request all online clients from server");
+        println!("What do you want to do? \n0: Register as online \n1: Go offline\n2: Request increase in access from client\n3: See received images\n4: Receive request from clients\n5: Request all online clients from server\n6: Decrease access");
         let mut input = String::new();
         std::io::stdin().read_line(&mut input)?;
         let input = input.trim();
