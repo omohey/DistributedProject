@@ -590,6 +590,7 @@ async fn handle_server(servers_socket: &UdpSocket, client_socket: &UdpSocket) ->
                 let mut highest_load = *my_load;
                 let mut highest_load_addr = client_socket.local_addr().unwrap();
 
+                continue;
                 if entry.len() == 1{
                     continue;
                 }

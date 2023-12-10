@@ -24,3 +24,15 @@ path = "src/server3.rs"
 [[bin]]
 name = "client"
 path = "src/client.rs"
+
+[[bin]]
+name = "test"
+path = "src/test_election.rs"
+
+[[bin]]
+name = "test2"
+path = "src/test_balance.rs"
+
+[[bin]]
+name = "test3"
+path = "src/test3.rs"

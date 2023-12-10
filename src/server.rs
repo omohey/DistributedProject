@@ -219,7 +219,7 @@ async fn handle_client(clients_socket: &UdpSocket, servers_socket: &UdpSocket) -
                     std::thread::sleep(std::time::Duration::from_millis(1));
                 }
                 
-                *load -= 1;
+                // *load -= 1;
             },
             2 => {  // register as online
                 // Add client address to directory
@@ -590,6 +590,7 @@ async fn handle_server(servers_socket: &UdpSocket, client_socket: &UdpSocket) ->
                 let mut highest_load = *my_load;
                 let mut highest_load_addr = client_socket.local_addr().unwrap();
 
+                continue;
                 if entry.len() == 1{
                     continue;
                 }
