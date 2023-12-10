@@ -10,7 +10,6 @@ use std::thread;
 use std::time::Duration;
 
 
-use termion::input;
 use tokio::sync::Mutex;
 use tokio::net::UdpSocket;
 use sysinfo::{CpuExt, System, SystemExt};
